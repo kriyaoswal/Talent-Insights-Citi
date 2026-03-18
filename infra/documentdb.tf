@@ -1,6 +1,6 @@
 resource "aws_docdb_subnet_group" "this" {
   count      = data.aws_caller_identity.this.id != "000000000000" ? 1 : 0
-  name       = format("%s-subnet-group-%s", var.aws_project, local.app_id)
+  name       = format("%s-docdb-subnet-group-%s", var.aws_project, local.app_id)
   subnet_ids = local.public_subnet_ids
 
   tags = {
@@ -12,7 +12,7 @@ resource "aws_docdb_subnet_group" "this" {
 
 resource "aws_docdb_cluster" "this" {
   count                           = data.aws_caller_identity.this.id != "000000000000" ? 1 : 0
-  cluster_identifier              = format("%s-%s", var.aws_project, local.app_id)
+  cluster_identifier              = format("%s-docdb-%s", var.aws_project, local.app_id)
   engine                          = "docdb"
   engine_version                  = "5.0.0"
   master_username                 = "superadmin"
@@ -22,12 +22,12 @@ resource "aws_docdb_cluster" "this" {
   skip_final_snapshot             = true
   storage_encrypted               = true
   db_subnet_group_name            = element(aws_docdb_subnet_group.this.*.name, count.index)
-  vpc_security_group_ids          = [aws_security_group.this.id]
+  vpc_security_group_ids          = data.aws_security_groups.this.ids
   enabled_cloudwatch_logs_exports = ["audit", "profiler"]
 
   serverless_v2_scaling_configuration {
+    max_capacity = 4.0
     min_capacity = 0.5
-    max_capacity = 2.0
   }
 
   tags = {
@@ -40,8 +40,8 @@ resource "aws_docdb_cluster" "this" {
 resource "aws_docdb_cluster_instance" "this" {
   count                      = data.aws_caller_identity.this.id != "000000000000" ? 1 : 0
   cluster_identifier         = element(aws_docdb_cluster.this.*.id, count.index)
-  engine                     = "docdb"
-  identifier                 = format("%s-%s", var.aws_project, local.app_id)
+  engine                     = element(aws_docdb_cluster.this.*.engine, count.index)
+  identifier                 = format("%s-docdb-%s", var.aws_project, local.app_id)
   instance_class             = "db.serverless"
   auto_minor_version_upgrade = true
 
@@ -52,25 +52,25 @@ resource "aws_docdb_cluster_instance" "this" {
   }
 }
 
-resource "aws_secretsmanager_secret" "data" {
-  count                   = data.aws_caller_identity.this.id != "000000000000" ? 1 : 0
-  name                    = format("%s-data-%s", var.aws_project, local.app_id)
-  recovery_window_in_days = 0
+# resource "aws_secretsmanager_secret" "docdb" {
+#   count                   = data.aws_caller_identity.this.id != "000000000000" ? 1 : 0
+#   name                    = format("%s-docdb-%s", var.aws_project, local.app_id)
+#   recovery_window_in_days = 0
 
-  tags = {
-    awsApplication = local.app_arn
-    participant    = local.app_id
-    event          = random_id.this.hex
-  }
-}
+#   tags = {
+#     awsApplication = local.app_arn
+#     participant    = local.app_id
+#     event          = random_id.this.hex
+#   }
+# }
 
-resource "aws_secretsmanager_secret_version" "data" {
-  count     = data.aws_caller_identity.this.id != "000000000000" ? 1 : 0
-  secret_id = element(aws_secretsmanager_secret.data.*.id, count.index)
-  secret_string = jsonencode({
-    username = element(aws_docdb_cluster.this.*.master_username, count.index)
-    password = element(aws_docdb_cluster.this.*.master_password, count.index)
-    host     = element(aws_docdb_cluster.this.*.endpoint, count.index)
-    port     = element(aws_docdb_cluster.this.*.port, count.index)
-  })
-}
+# resource "aws_secretsmanager_secret_version" "docdb" {
+#   count     = data.aws_caller_identity.this.id != "000000000000" ? 1 : 0
+#   secret_id = element(aws_secretsmanager_secret.docdb.*.id, count.index)
+#   secret_string = jsonencode({
+#     username = element(aws_docdb_cluster.this.*.master_username, count.index)
+#     password = element(aws_docdb_cluster.this.*.master_password, count.index)
+#     host     = element(aws_docdb_cluster.this.*.endpoint, count.index)
+#     port     = element(aws_docdb_cluster.this.*.port, count.index)
+#   })
+# }

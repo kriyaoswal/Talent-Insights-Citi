@@ -9,7 +9,17 @@ This folder contains Python backend services for CRUD operations on Individuals,
 - Python - Backend language
 - Boto3 - AWS SDK for Python
 - AWS Lambda - Serverless compute
-- AWS DocumentDB - MongoDB-compatible database
+- Amazon DocumentDB - MongoDB-compatible database
+
+Predefined environment variables are injected into each backend service automatically, simplifying the need to manage them manually:
+
+| Variable | Description | Local | Cloud |
+|----------|-------------|-------|-------|
+| `MONGO_HOST` | Mongo database hostname | `host.docker.internal` | AWS DocumentDB endpoint |
+| `MONGO_PORT` | Mongo database port | `27017` | `27017` |
+| `MONGO_NAME` | Mongo database default name | `codingworkshop` | `codingworkshop` |
+| `MONGO_USER` | Mongo database username | *(empty)* | AWS DocumentDB username |
+| `MONGO_PASS` | Mongo database password | *(empty)* | AWS DocumentDB password |
 
 ## Structure
 
