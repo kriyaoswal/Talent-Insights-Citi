@@ -2,25 +2,32 @@
 
 ## Overview
 
-This folder contains Python backend services for CRUD operations on Individuals, Teams, Achievements, and Metadata.
+This folder contains backend services for CRUD operations for Python and NodeJS developers.
 
 ## Prerequisites
 
-- Python - Backend language
-- Boto3 - AWS SDK for Python
+- AWS Aurora - PostgreSQL-compatible database
+- AWS DocumentDB - MongoDB-compatible database
 - AWS Lambda - Serverless compute
-- Amazon DocumentDB - MongoDB-compatible database
+- You backend language of choice
+    - NodeJS and AWS SDK for JavaScript
+    - Python and AWS SDK for Python (Boto3)
 
 Predefined environment variables are injected into each backend service automatically, simplifying the need to manage them manually:
 
-| Variable     | Description             | Local                  | Cloud                   |
-| ------------ | ----------------------- | ---------------------- | ----------------------- |
-| `IS_LOCAL`   | Is it local or cloud?   | `true`                 | `false`                 |
-| `MONGO_HOST` | Mongo database hostname | `host.docker.internal` | AWS DocumentDB endpoint |
-| `MONGO_PORT` | Mongo database port     | `27017`                | `27017`                 |
-| `MONGO_NAME` | Mongo database name     | *(empty)*              | AWS DocumentDB database |
-| `MONGO_USER` | Mongo database username | *(empty)*              | AWS DocumentDB username |
-| `MONGO_PASS` | Mongo database password | *(empty)*              | AWS DocumentDB password |
+| Variable        | Description           | Local                  | Cloud                   |
+| --------------- | --------------------- | ---------------------- | ----------------------- |
+| `IS_LOCAL`      | Is it local or cloud? | `true`                 | `false`                 |
+| `POSTGRES_HOST` | PostgreSQL hostname   | `localhost`            | AWS Aurora endpoint     |
+| `POSTGRES_PORT` | PostgreSQL port       | `5432`                 | `5432`                  |
+| `POSTGRES_NAME` | PostgreSQL name       | *(empty)*              | AWS Aurora database     |
+| `POSTGRES_USER` | PostgreSQL username   | *(empty)*              | AWS Aurora username     |
+| `POSTGRES_PASS` | PostgreSQL password   | *(empty)*              | AWS Aurora password     |
+| `MONGO_HOST`    | MongoDB hostname      | `host.docker.internal` | AWS DocumentDB endpoint |
+| `MONGO_PORT`.   | MongoDB port          | `27017`                | `27017`                 |
+| `MONGO_NAME`    | MongoDB db name       | *(empty)*              | AWS DocumentDB database |
+| `MONGO_USER`    | MongoDB username      | *(empty)*              | AWS DocumentDB username |
+| `MONGO_PASS`    | MongoDB password      | *(empty)*              | AWS DocumentDB password |
 
 > **Connection behavior:** When `IS_LOCAL` is `true`, the connection uses no TLS even if credentials are present (local MongoDB requires auth but not TLS). When `IS_LOCAL` is `false`, TLS is required for DocumentDB.
 
@@ -30,17 +37,15 @@ The backend is organized into Lambda functions, one for each CRUD service:
 
 ```
 coding-workshop-participant/
-├── backend/               # Python backend
-│   ├── achievements/        # CRUD service for achievements
-│   │   ├── function.py        # Contains the Python service with business logic
-│   │   └── requirements.txt   # Contains the Python required dependencies
-│   ├── individuals/         # CRUD service for individuals
-│   │   └── ...                # Similar to the previous service
-│   ├── metadata/            # CRUD service for metadata
-│   │   └── ...                # Similar to the previous service
-│   ├── teams/               # CRUD service for teams
-│   │   └── ...                # Similar to the previous service
-│   └── README.md            # Backend guide
+├── backend/                             # Backend services
+│   ├── _examples/                         # Hello world examples
+│   │   ├── nodejs-service/                  # Backend service example for NodeJS developers
+│   │   │   ├── index.js                       # Business logic using Python
+│   │   │   └── package.json                   # NodeJS configuration and dependencies
+│   │   └── python-service/                  # Backend service example for Python developers
+│   │       ├── function.py                    # Business logic using Python
+│   │       └── requirements.txt               # Python configuration and dependencies
+│   └── README.md                        # Backend guide
 ├── ...
 ```
 
@@ -63,7 +68,7 @@ curl -X GET https://localhost:3001/api/{{service-name}} \
 ```
 
 Replace `{{service-name}}` with corresponding service name
-(e.g. `teams` or `individuals`).
+(e.g. `python-service`).
 
 To tail logs in real-time:
 
@@ -74,7 +79,7 @@ awslocal logs tail /aws/lambda/{{function-name}} \
 ```
 
 Replace `{{function-name}}` with corresponding service name
-(e.g. `coding-workshop-teams-abcd1234`).
+(e.g. `coding-workshop-python-service-abcd1234`).
 
 ### Cloud Deployment
 
@@ -93,7 +98,7 @@ curl -X GET https://{API_BASE_URL}/api/{{service-name}} \
 ```
 
 Replace `{{service-name}}` with corresponding service name
-(e.g. `teams` or `individuals`).
+(e.g. `python-service`).
 
 To tail logs in real-time:
 
@@ -104,7 +109,7 @@ aws logs tail /aws/lambda/{{function-name}} \
 ```
 
 Replace `{{function-name}}` with corresponding service name
-(e.g. `coding-workshop-teams-abcd1234`).
+(e.g. `coding-workshop-python-service-abcd1234`).
 
 ## Clean Up
 
