@@ -12,15 +12,17 @@ if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
     echo ""
     echo "Description:"
     echo "  Validates and starts all required services:"
-    echo "  1. MongoDB (with proper binding)"
-    echo "  2. LocalStack (AWS services emulation)"
-    echo "  3. Backend infrastructure (Terraform + Lambda)"
-    echo "  4. Frontend development server (React)"
+    echo "  1. PostgreSQL (with proper binding)"
+    echo "  2. MongoDB (with proper binding)"
+    echo "  3. LocalStack (AWS services emulation)"
+    echo "  4. Backend infrastructure (Terraform + Lambda)"
+    echo "  5. Frontend development server (React)"
     echo ""
     echo "Options:"
     echo "  -h, --help      Show this help message"
     echo ""
     echo "Requirements:"
+    echo "  - postgres installed"
     echo "  - mongod installed"
     echo "  - npm installed"
     echo "  - localstack installed"
@@ -28,9 +30,9 @@ if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
     exit 0
 fi
 
-echo "============================================================"
+echo "==================================================="
 echo "Comprehensive Local Development Environment Startup"
-echo "============================================================"
+echo "==================================================="
 echo ""
 
 # Resolve script directory and project root paths
@@ -42,9 +44,18 @@ INFRA_DIR="$PROJECT_ROOT/infra"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
 
 # ============================================================
-# STEP 1: Check and Start MongoDB
+# STEP 1: Check and Start PostgreSQL
 # ============================================================
-echo -e "[1/4] Checking MongoDB..."
+echo -e "[1/5] Checking PostgreSQL..."
+
+echo "WARNING: NOT IMPLEMENTED ... TODO ..."
+
+echo ""
+
+# ============================================================
+# STEP 2: Check and Start MongoDB
+# ============================================================
+echo -e "[2/5] Checking MongoDB..."
 
 # Check if mongod is installed
 if ! command -v mongod &> /dev/null; then
@@ -156,13 +167,18 @@ fi
 echo ""
 
 # ============================================================
-# STEP 2: Check and Start LocalStack
+# STEP 3: Check and Start LocalStack
 # ============================================================
-echo -e "[2/4] Checking LocalStack..."
+echo -e "[3/5] Checking LocalStack..."
 
 # Use free tier only
-export LOCALSTACK_ACTIVATE_PRO=0
-export LOCALSTACK_ACKNOWLEDGE_ACCOUNT_REQUIREMENT=1
+#export ACTIVATE_PRO=0
+#export LOCALSTACK_ACTIVATE_PRO=0
+#export LOCALSTACK_ACKNOWLEDGE_ACCOUNT_REQUIREMENT=1
+
+# Set LocalStack AWS credentials
+#export AWS_ACCESS_KEY_ID=test
+#export AWS_SECRET_ACCESS_KEY=test
 
 # Check if localstack is installed
 if ! command -v localstack &> /dev/null; then
@@ -188,8 +204,8 @@ else
     # Check if LocalStack docker container is already running
     if docker ps | grep -q localstack-main; then
         echo -e "  ⚠ Stopping existing LocalStack container..."
-        localstack stop
-        docker stop localstack-main
+        localstack stop || echo "WARNING: localstack stop didn't work"
+        docker stop localstack-main || echo "WARNING: docker stop localstack-main didn't work"
         sleep 10
     fi
 
@@ -230,9 +246,9 @@ echo -e "  ✓ LocalStack services verified"
 echo ""
 
 # ============================================================
-# STEP 3: Check and Deploy Backend
+# STEP 4: Check and Deploy Backend
 # ============================================================
-echo -e "[3/4] Checking Backend Infrastructure..."
+echo -e "[4/5] Checking Backend Infrastructure..."
 
 # Verify required tools
 if ! command -v tflocal &> /dev/null; then
@@ -240,11 +256,6 @@ if ! command -v tflocal &> /dev/null; then
     echo "Install: pip install terraform-local"
     exit 1
 fi
-
-# Set LocalStack AWS credentials
-export AWS_REGION=us-east-1
-export AWS_ACCESS_KEY_ID=test
-export AWS_SECRET_ACCESS_KEY=test
 
 # Detect MongoDB host for LocalStack Lambda functions
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -283,7 +294,7 @@ if [ "$BACKEND_OK" = false ]; then
     echo -e "  ⚠ Backend not deployed or not working, deploying..."
 
     # Deploy backend
-    "$SCRIPT_DIR/deploy-backend.sh" local > /tmp/backend-deploy.log 2>&1 || {
+    $SCRIPT_DIR/deploy-backend.sh local > /tmp/backend-deploy.log 2>&1 || {
         echo -e "  ✗ Backend deployment failed"
         tail -n 50 /tmp/backend-deploy.log | sed 's/^/    /'
         exit 1
@@ -299,9 +310,9 @@ tflocal output -json lambda_urls 2>/dev/null | grep -o 'http://[^"]*' | sed 's/^
 echo ""
 
 # ============================================================
-# STEP 4: Check and Start Frontend
+# STEP 5: Check and Start Frontend
 # ============================================================
-echo -e "[4/4] Checking Frontend..."
+echo -e "[5/5] Checking Frontend..."
 
 # Check if npm is installed
 if ! command -v npm &> /dev/null; then
