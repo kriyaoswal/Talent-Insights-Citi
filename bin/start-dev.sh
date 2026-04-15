@@ -328,11 +328,19 @@ else
 fi
 
 # Install pip requirements into each Python service directory for hot-reload
+# Skip if requirements.txt hasn't changed since last install (avoids slow PyPI lookups)
 shopt -s nullglob
 for req in "$PROJECT_ROOT"/backend/*/requirements.txt; do
     svc_dir="$(dirname "$req")"
+    REQS_HASH=$(md5sum "$req" 2>/dev/null | cut -d' ' -f1)
+    HASH_FILE="$svc_dir/.pip_installed"
+    if [ "$(cat "$HASH_FILE" 2>/dev/null)" = "$REQS_HASH" ]; then
+        echo -e "  pip requirements for $(basename "$svc_dir") already up to date, skipping..."
+        continue
+    fi
     echo -e "  Installing pip requirements for $(basename "$svc_dir")..."
     pip install --quiet --target="$svc_dir" -r "$req" 2>/dev/null || true
+    echo "$REQS_HASH" > "$HASH_FILE"
 done
 
 # Install npm dependencies into each Node.js service directory for hot-reload
@@ -360,11 +368,25 @@ export AWS_SECRET_ACCESS_KEY=test
 export AWS_REGION=us-east-1
 unset AWS_SESSION_TOKEN
 
+# Ensure the Terraform state bucket exists in LocalStack
+BUCKET_NAME="coding-workshop-tfstate-${PARTICIPANT_ID:-abcd1234}"
+if ! aws s3 ls 2>/dev/null | grep -q "$BUCKET_NAME"; then
+    echo -e "  Creating Terraform state bucket: $BUCKET_NAME"
+    aws s3 mb "s3://$BUCKET_NAME" > /dev/null 2>&1 || {
+        echo -e "  ✗ Failed to create Terraform state bucket"
+        exit 1
+    }
+fi
+
 # Ensure terraform is initialized against the correct LocalStack backend
 terraform init -reconfigure \
     -backend-config="bucket=coding-workshop-tfstate-${PARTICIPANT_ID:-abcd1234}" \
     -backend-config="region=${AWS_REGION:-us-east-1}" \
-    > /dev/null 2>&1
+    > /tmp/tf-init.log 2>&1 || {
+    echo -e "  ✗ Terraform init failed:"
+    tail -n 20 /tmp/tf-init.log | sed 's/^/    /'
+    exit 1
+}
 
 
 # Count services on disk vs deployed
