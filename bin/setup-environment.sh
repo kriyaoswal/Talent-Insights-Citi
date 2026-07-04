@@ -11,11 +11,11 @@
 #   - IDEs: Visual Studio Code, IntelliJ IDEA, PyCharm
 #   - Browser: Google Chrome
 #   - Containers: Docker (with sudo-less access)
-#   - Cloud Tools: Terraform CLI, AWS CLI v2
-#   - LocalStack: LocalStack CLI
+#   - Cloud Tools: AWS CLI, Terraform, LocalStack
+#   - Runtimes: Python, Node.js, Java/OpenJDK
 #   - Database: PostgreSQL, pgAdmin
 #   - Database: MongoDB, MongoDB Compass
-#   - Runtimes: Node.js, Python
+#   - Data Tools: Spark, Trino, Jupyter Notebook
 #   - Utilities: jq (JSON processor)
 #   - Optional: dnsmasq (for LocalStack DNS, use -d flag)
 #
@@ -26,7 +26,7 @@
 #   - MongoDB
 #
 # Usage:
-#   ./workspace-setup.sh [OPTIONS]
+#   ./setup-environment.sh [OPTIONS]
 #
 # Options:
 #   -n                     Dry run - show what would be done without making changes
@@ -36,10 +36,10 @@
 #   --pycharm-professional Install PyCharm Professional (default: Community)
 #
 # Examples:
-#   ./workspace-setup.sh -n              # Preview installation
-#   ./workspace-setup.sh                 # Run installation with defaults
-#   ./workspace-setup.sh -d              # Include dnsmasq for LocalStack DNS
-#   ./workspace-setup.sh --intellij-ultimate --pycharm-professional
+#   ./setup-environment.sh -n              # Preview installation
+#   ./setup-environment.sh                 # Run installation with defaults
+#   ./setup-environment.sh -d              # Include dnsmasq for LocalStack DNS
+#   ./setup-environment.sh --intellij-ultimate --pycharm-professional
 #
 # ============================================================================
 
@@ -47,20 +47,23 @@
 set +e
 
 # ============================================================================
-# SECTION 2: CONFIGURATION CONSTANTS
+# SECTION 1: CONFIGURATION CONSTANTS
 # ============================================================================
 
-LOCALSTACK_VERSION="2026.3.0"
+LOCALSTACK_VERSION="2026.6.0"
 POSTGRES_VERSION="16"
-MONGODB_VERSION="7.0"
-COMPASS_VERSION="1.43.0"
 POSTGRES_USER="${POSTGRES_USER:-postgres}"
 POSTGRES_PASS="${POSTGRES_PASS:-postgres123}"
+MONGODB_VERSION="7.0"
+COMPASS_VERSION="1.43.0"
 MONGO_USER="${MONGO_USER:-mongo}"
 MONGO_PASS="${MONGO_PASS:-mongo123}"
+SPARK_VERSION="4.1.2"
+TRINO_VERSION="476"
+JUPYTER_PORT="${JUPYTER_PORT:-8888}"
 
 # ============================================================================
-# SECTION 3: COMMAND-LINE ARGUMENT PARSING
+# SECTION 2: COMMAND-LINE ARGUMENT PARSING
 # ============================================================================
 
 DRY_RUN=false
@@ -75,7 +78,7 @@ show_help() {
     cat << 'HELP'
 Ubuntu 22.04 Developer Workstation Setup
 
-Usage: ./workspace-setup.sh [OPTIONS]
+Usage: ./setup-environment.sh [OPTIONS]
 
 Options:
   -n                     Dry run - show what would be done without making changes
@@ -84,21 +87,6 @@ Options:
   --intellij-ultimate    Install IntelliJ IDEA Ultimate (default: Community)
   --pycharm-professional Install PyCharm Professional (default: Community)
 
-Installed tools:
-  - Visual Studio Code (latest)
-  - IntelliJ IDEA (Community or Ultimate)
-  - PyCharm (Community or Professional)
-  - Google Chrome
-  - Docker (with sudo-less access for current user)
-  - Terraform CLI
-  - AWS CLI v2
-  - LocalStack CLI
-  - PostgreSQL with pgAdmin
-  - MongoDB with MongoDB Compass
-  - Node.js
-  - Python
-  - jq (JSON processor)
-
 Services configured to start on boot:
   - Docker
   - LocalStack
@@ -106,10 +94,10 @@ Services configured to start on boot:
   - MongoDB
 
 Examples:
-  ./workspace-setup.sh -n           # Preview installation
-  ./workspace-setup.sh              # Interactive installation
-  ./workspace-setup.sh -d           # Include dnsmasq for LocalStack DNS
-  ./workspace-setup.sh --intellij-ultimate --pycharm-professional
+  ./setup-environment.sh              # Interactive installation
+  ./setup-environment.sh -n           # Preview installation
+  ./setup-environment.sh -d           # Include dnsmasq for LocalStack DNS
+  ./setup-environment.sh --intellij-ultimate --pycharm-professional
 HELP
 }
 
@@ -148,7 +136,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ============================================================================
-# SECTION 4: UTILITY FUNCTIONS
+# SECTION 3: UTILITY FUNCTIONS
 # ============================================================================
 
 # Color codes for output
@@ -235,7 +223,7 @@ print_dry_run_missing() {
 }
 
 # ============================================================================
-# SECTION 5: PRE-FLIGHT CHECKS
+# SECTION 4: PRE-FLIGHT CHECKS
 # ============================================================================
 
 # Check if running as root directly (not via sudo)
@@ -243,7 +231,7 @@ check_not_root() {
     if [ "$EUID" -eq 0 ] && [ -z "$SUDO_USER" ]; then
         print_error "Do not run this script as root directly"
         print_info "Run as a regular user with sudo privileges:"
-        print_info "  ./workspace-setup.sh"
+        print_info "  ./setup-environment.sh"
         return 1
     fi
     return 0
@@ -374,7 +362,7 @@ run_preflight_checks() {
 }
 
 # ============================================================================
-# SECTION 6: SYSTEM PREREQUISITES
+# SECTION 5: SYSTEM PREREQUISITES
 # ============================================================================
 
 install_prerequisites() {
@@ -403,7 +391,7 @@ install_prerequisites() {
 }
 
 # ============================================================================
-# SECTION 7: IDE INSTALLATIONS
+# SECTION 6: IDE INSTALLATIONS
 # ============================================================================
 
 install_vscode() {
@@ -513,7 +501,7 @@ install_pycharm() {
 }
 
 # ============================================================================
-# SECTION 8: BROWSER INSTALLATION
+# SECTION 7: BROWSER INSTALLATION
 # ============================================================================
 
 install_chrome() {
@@ -558,7 +546,7 @@ install_chrome() {
 }
 
 # ============================================================================
-# SECTION 9: CONTAINER & CLOUD TOOLS
+# SECTION 8: CONTAINER & CLOUD TOOLS
 # ============================================================================
 
 install_docker() {
@@ -626,7 +614,7 @@ install_docker() {
                 if ! grep -q "Docker group activation" "$ACTUAL_HOME/.bashrc" 2>/dev/null; then
                     cat >> "$ACTUAL_HOME/.bashrc" << EOF
 
-# Docker group activation (added by workspace-setup.sh)
+# Docker group activation (added by setup-environment.sh)
 # Auto-activates docker group until next login - can be removed after reboot
 if command -v docker &>/dev/null && groups 2>/dev/null | grep -qv "\bdocker\b" && getent group docker | grep -q "\b${ACTUAL_USER}\b"; then
     exec sg docker newgrp "\$(id -gn)"
@@ -740,7 +728,7 @@ install_awscli() {
 }
 
 # ============================================================================
-# SECTION 10: DATABASE TOOLS
+# SECTION 9: DATABASE TOOLS
 # ============================================================================
 
 install_postgres() {
@@ -972,7 +960,7 @@ configure_mongodb_bind() {
         if sudo systemctl restart mongod; then
             print_status "MongoDB service restarted with new configuration"
             print_info "MongoDB is now accessible from all network interfaces"
-            print_info "WARNING: Ensure firewall rules are configured appropriately"
+            print_info "WARN: Ensure firewall rules are configured appropriately"
         else
             add_failure "Failed to restart MongoDB after config change"
         fi
@@ -1087,7 +1075,7 @@ install_mongodb_compass() {
 }
 
 # ============================================================================
-# SECTION 11: RUNTIMES
+# SECTION 10: RUNTIMES
 # ============================================================================
 
 install_nodejs() {
@@ -1175,6 +1163,290 @@ install_python() {
         fi
     else
         add_failure "Failed to add deadsnakes PPA"
+    fi
+}
+
+install_java_openjdk() {
+    print_section "Java OpenJDK 21"
+
+    if is_dry_run; then
+        print_dry_run_header "JAVA" "Java OpenJDK 21"
+        if command -v java &> /dev/null; then
+            print_dry_run_status "Already installed: $(java -version 2>&1 | head -n1)"
+        else
+            print_dry_run_missing "Not installed"
+            print_dry_run_action "Would install: openjdk-21-jdk-headless"
+        fi
+        return
+    fi
+
+    print_info "Installing Java OpenJDK 21..."
+
+    # Idempotency check
+    if command -v java &> /dev/null && java -version 2>&1 | grep -q "21"; then
+        print_info "Java OpenJDK 21 already installed: $(java -version 2>&1 | head -n1)"
+        return
+    fi
+
+    if sudo apt install -y openjdk-21-jdk-headless; then
+        print_status "Java OpenJDK 21 installed: $(java -version 2>&1 | head -n1)"
+
+        # Set JAVA_HOME if not already set
+        if ! grep -q "export JAVA_HOME=" "$ACTUAL_HOME/.bashrc" 2>/dev/null; then
+            echo 'export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64' >> "$ACTUAL_HOME/.bashrc"
+            export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+            print_info "Set JAVA_HOME in ~/.bashrc"
+        fi
+    else
+        add_failure "Failed to install Java OpenJDK 21"
+    fi
+}
+
+# ============================================================================
+# SECTION 11: DATA TOOLS (SPARK, TRINO, JUPYTER)
+# ============================================================================
+
+install_apache_spark() {
+    print_section "Apache Spark $SPARK_VERSION"
+
+    local spark_home="$ACTUAL_HOME/.local/spark"
+    local spark_filename="spark-${SPARK_VERSION}-bin-hadoop3.tgz"
+
+    # Multiple mirror URLs in fallback order
+    local -a spark_mirrors=(
+        "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/$spark_filename"
+        "https://dlcdn.apache.org/spark/spark-${SPARK_VERSION}/$spark_filename"
+        "https://downloads.apache.org/spark/spark-${SPARK_VERSION}/$spark_filename"
+    )
+
+    if is_dry_run; then
+        print_dry_run_header "SPARK" "Apache Spark $SPARK_VERSION"
+        if [ -d "$spark_home" ]; then
+            print_dry_run_status "Already installed at: $spark_home"
+        else
+            print_dry_run_missing "Not installed"
+            print_dry_run_action "Would download: Spark $SPARK_VERSION (with fallback mirrors)"
+            print_dry_run_action "Would extract to: $spark_home"
+            print_dry_run_action "Would add SPARK_HOME to PATH in ~/.bashrc"
+        fi
+        return
+    fi
+
+    print_info "Installing Apache Spark $SPARK_VERSION..."
+
+    # Idempotency check
+    if [ -d "$spark_home/bin" ] && [ -f "$spark_home/bin/spark-submit" ]; then
+        print_info "Apache Spark already installed at: $spark_home"
+        return
+    fi
+
+    # Create local directory
+    mkdir -p "$ACTUAL_HOME/.local"
+
+    # Download and extract
+    local tmp_dir=$(mktemp -d)
+    cd "$tmp_dir"
+
+    print_info "Downloading Spark ${SPARK_VERSION}..."
+    local download_success=false
+
+    for mirror_url in "${spark_mirrors[@]}"; do
+        print_info "Trying mirror: $mirror_url"
+        if wget -q --timeout=30 "$mirror_url" -O spark.tgz 2>/dev/null; then
+            download_success=true
+            print_status "Download successful"
+            break
+        else
+            print_info "Mirror failed, trying next..."
+        fi
+    done
+
+    if [ "$download_success" = true ] && tar -tzf spark.tgz >/dev/null 2>&1; then
+        if tar -xzf spark.tgz && [ -d "spark-${SPARK_VERSION}-bin-hadoop3" ]; then
+            # Remove old spark directory if exists
+            rm -rf "$spark_home"
+
+            # Move to final location
+            mv "spark-${SPARK_VERSION}-bin-hadoop3" "$spark_home"
+            print_status "Apache Spark extracted to: $spark_home"
+
+            # Add to PATH and set SPARK_HOME
+            if ! grep -q "export SPARK_HOME=" "$ACTUAL_HOME/.bashrc" 2>/dev/null; then
+                cat >> "$ACTUAL_HOME/.bashrc" << 'EOF'
+
+# Apache Spark configuration (added by setup-environment.sh)
+export SPARK_HOME=$HOME/.local/spark
+export PATH="$SPARK_HOME/bin:$PATH"
+EOF
+                print_status "Added SPARK_HOME and spark/bin to PATH in ~/.bashrc"
+            fi
+
+            # Test spark installation
+            if "$spark_home/bin/spark-shell" --version &>/dev/null 2>&1; then
+                print_status "Spark installation verified"
+            fi
+        else
+            add_failure "Failed to extract Apache Spark"
+        fi
+    else
+        add_failure "Failed to download Apache Spark ${SPARK_VERSION} from all available mirrors"
+        print_info "Spark is optional and can be installed later manually if needed"
+    fi
+
+    cd - > /dev/null
+    rm -rf "$tmp_dir"
+}
+
+install_apache_trino() {
+    print_section "Apache Trino Server $TRINO_VERSION"
+
+    local trino_home="$ACTUAL_HOME/.local/trino"
+    local trino_data_dir="$ACTUAL_HOME/.local/trino-data"
+    local trino_download_url="https://repo1.maven.org/maven2/io/trino/trino-server/${TRINO_VERSION}/trino-server-${TRINO_VERSION}.tar.gz"
+    local trino_cli_url="https://repo1.maven.org/maven2/io/trino/trino-cli/${TRINO_VERSION}/trino-cli-${TRINO_VERSION}-executable.jar"
+
+    if is_dry_run; then
+        print_dry_run_header "TRINO" "Apache Trino Server $TRINO_VERSION"
+        if [ -d "$trino_home" ]; then
+            print_dry_run_status "Already installed at: $trino_home"
+        else
+            print_dry_run_missing "Not installed"
+            print_dry_run_action "Would download: Trino Server $TRINO_VERSION"
+            print_dry_run_action "Would download: Trino CLI $TRINO_VERSION"
+            print_dry_run_action "Would extract to: $trino_home"
+            print_dry_run_action "Would create data directory: $trino_data_dir"
+            print_dry_run_action "Would add Trino CLI to PATH in ~/.bashrc"
+        fi
+        return
+    fi
+
+    print_info "Installing Apache Trino $TRINO_VERSION..."
+
+    # Idempotency check
+    if [ -d "$trino_home/bin" ] && [ -f "$trino_home/bin/launcher.py" ]; then
+        print_info "Apache Trino already installed at: $trino_home"
+        return
+    fi
+
+    # Create local directories
+    mkdir -p "$ACTUAL_HOME/.local"
+    mkdir -p "$trino_data_dir"
+
+    # Download and extract server
+    local tmp_dir=$(mktemp -d)
+    cd "$tmp_dir"
+
+    print_info "Downloading Trino Server ${TRINO_VERSION}..."
+    if wget -q "$trino_download_url" -O trino-server.tar.gz; then
+        if tar -xzf trino-server.tar.gz && [ -d "trino-server-${TRINO_VERSION}" ]; then
+            # Remove old trino directory if exists
+            rm -rf "$trino_home"
+
+            # Move to final location
+            mv "trino-server-${TRINO_VERSION}" "$trino_home"
+            print_status "Apache Trino Server extracted to: $trino_home"
+
+            # Create basic configuration
+            mkdir -p "$trino_home/etc"
+            cat > "$trino_home/etc/config.properties" << EOF
+coordinator=true
+node-scheduler.include-coordinator=true
+http-server.http.port=8080
+query.max-memory=512MB
+discovery-server.enabled=true
+discovery.uri=http://localhost:8080
+EOF
+
+            # Create node.properties
+            cat > "$trino_home/etc/node.properties" << EOF
+node.environment=production
+node.data_dir=$trino_data_dir
+EOF
+
+            print_status "Trino configuration files created"
+        else
+            add_failure "Failed to extract Apache Trino Server"
+        fi
+    else
+        add_failure "Failed to download Apache Trino Server from $trino_download_url"
+    fi
+
+    # Download Trino CLI
+    print_info "Downloading Trino CLI ${TRINO_VERSION}..."
+    local trino_cli_path="$ACTUAL_HOME/.local/bin/trino"
+    mkdir -p "$ACTUAL_HOME/.local/bin"
+
+    if wget -q "$trino_cli_url" -O "$trino_cli_path"; then
+        chmod +x "$trino_cli_path"
+        print_status "Trino CLI downloaded and installed to: $trino_cli_path"
+
+        # Add ~/.local/bin to PATH if not already there
+        if ! grep -q 'export PATH="\$HOME/.local/bin' "$ACTUAL_HOME/.bashrc" 2>/dev/null; then
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$ACTUAL_HOME/.bashrc"
+        fi
+    else
+        add_failure "Failed to download Trino CLI from $trino_cli_url"
+    fi
+
+    cd - > /dev/null
+    rm -rf "$tmp_dir"
+}
+
+install_jupyter_notebook() {
+    print_section "Jupyter Notebook"
+
+    if is_dry_run; then
+        print_dry_run_header "JUPYTER" "Jupyter Notebook"
+        if command -v jupyter &> /dev/null || python3.11 -m pip show jupyter &>/dev/null 2>&1; then
+            print_dry_run_status "Already installed"
+        else
+            print_dry_run_missing "Not installed"
+            print_dry_run_action "Would install via pip: jupyter notebook"
+            print_dry_run_action "Would install common data science packages: pandas, numpy, matplotlib, scikit-learn"
+        fi
+        print_dry_run_action "Would create: jupyter configuration directory"
+        return
+    fi
+
+    print_info "Installing Jupyter Notebook..."
+
+    # Check if already installed
+    if command -v jupyter &> /dev/null && jupyter --version &>/dev/null 2>&1; then
+        print_info "Jupyter Notebook already installed"
+        local current_version=$(jupyter --version 2>/dev/null | head -n1)
+        print_info "Version: $current_version"
+        return
+    fi
+
+    # Install jupyter and data science packages
+    local packages="jupyter notebook jupyterlab pandas numpy matplotlib scikit-learn scipy plotly"
+
+    print_info "Installing Jupyter and data science packages via pip..."
+    if python3.11 -m pip install --user $packages; then
+        print_status "Jupyter Notebook and data science packages installed"
+
+        # Verify installation
+        if python3.11 -m pip show jupyter &>/dev/null 2>&1; then
+            local jupyter_version=$(python3.11 -m pip show jupyter 2>/dev/null | grep Version | awk '{print $2}')
+            print_status "Jupyter Notebook verified: $jupyter_version"
+        fi
+
+        # Create jupyter config directory
+        local jupyter_config_dir="$ACTUAL_HOME/.jupyter"
+        mkdir -p "$jupyter_config_dir"
+        print_info "Jupyter configuration directory: $jupyter_config_dir"
+
+        # Add jupyter to PATH if ~/.local/bin not already in PATH
+        if ! grep -q 'export PATH="\$HOME/.local/bin' "$ACTUAL_HOME/.bashrc" 2>/dev/null; then
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$ACTUAL_HOME/.bashrc"
+            print_info "Added ~/.local/bin to PATH in ~/.bashrc"
+        fi
+
+        print_status "Jupyter Notebook installation complete"
+        print_info "Start Jupyter with: jupyter notebook"
+        print_info "Or use JupyterLab with: jupyter lab"
+    else
+        add_failure "Failed to install Jupyter Notebook and packages"
     fi
 }
 
@@ -1273,8 +1545,60 @@ EOF
 }
 
 # ============================================================================
-# SECTION 13: DNSMASQ CONFIGURATION (OPTIONAL)
+# SECTION 13: SSHD AND DNSMASQ CONFIGURATION
 # ============================================================================
+
+configure_sshd() {
+    # Verify sudo access
+    if ! sudo -n true 2>/dev/null; then
+        echo "INFO: enter the SAME password you used to log in to this WorkSpace..."
+    fi
+
+    # Backup sshd_config once (idempotent)
+    SSHD_CONFIG="/etc/ssh/sshd_config"
+    if [ ! -f "${SSHD_CONFIG}.bak" ]; then
+        sudo cp "$SSHD_CONFIG" "${SSHD_CONFIG}.bak"
+    fi
+
+    # Helper function to safely set/update sshd config options
+    # Sets value idempotently without duplicating lines
+    set_sshd_option() {
+        local option="$1"
+        local value="$2"
+
+        # Check if option exists and has correct value (idempotent check)
+        if grep -q "^${option}[[:space:]]*${value}" "$SSHD_CONFIG"; then
+            # Already set correctly, nothing to do
+            return 0
+        fi
+
+        # Remove any commented or incorrectly set instances
+        sudo sed -i "/^#*[[:space:]]*${option}[[:space:]]/d" "$SSHD_CONFIG"
+
+        # Add the correct setting
+        echo "${option} ${value}" | sudo tee -a "$SSHD_CONFIG" >/dev/null
+    }
+
+    # Enable PasswordAuthentication (idempotent)
+    set_sshd_option "PasswordAuthentication" "yes"
+
+    # Enable PAM (idempotent)
+    set_sshd_option "UsePAM" "yes"
+
+    # Verify configuration syntax before restart
+    if ! sudo sshd -t >/dev/null 2>&1; then
+        print_error "SSH configuration syntax error. Restoring backup."
+        sudo cp "${SSHD_CONFIG}.bak" "$SSHD_CONFIG"
+        return 1
+    fi
+
+    # Restart SSH service (safe restart - won't drop existing connections)
+    if systemctl list-unit-files | grep -q "^ssh.service"; then
+        sudo systemctl restart ssh
+    else
+        sudo systemctl restart sshd
+    fi
+}
 
 configure_dnsmasq() {
     if [ "$INSTALL_DNSMASQ" != true ]; then
@@ -1410,8 +1734,6 @@ run_verification() {
     verify_tool "Docker" "docker --version"
     verify_tool "Terraform" "terraform version" "head -n1"
     verify_tool "AWS CLI" "aws --version"
-
-    # LocalStack
     verify_tool "LocalStack" "localstack --version"
 
     # Database
@@ -1427,6 +1749,12 @@ run_verification() {
     verify_tool "Python 3.12" "python3.12 --version"
     verify_tool "Python 3.13" "python3.13 --version"
     verify_tool "Python 3.14" "python3.14 --version"
+    verify_tool "Java OpenJDK" "java -version" "head -n1"
+
+    # Data Tools
+    verify_tool_path "Apache Spark" "$ACTUAL_HOME/.local/spark/bin/spark-submit"
+    verify_tool_path "Apache Trino" "$ACTUAL_HOME/.local/bin/trino"
+    verify_tool "Jupyter Notebook" "python3.11 -m pip show jupyter" "grep Version"
 
     # Utilities
     verify_tool "jq" "jq --version"
@@ -1551,15 +1879,19 @@ curl -s http://localhost:4566/_localstack/health &>/dev/null && echo -e "  ${GRE
 
 echo ""
 echo "Tool Versions:"
-command -v node &>/dev/null && echo "  Node.js: $(node --version)"
+command -v node &>/dev/null && echo "  Node.js: $(node --version 2>&1)"
 command -v python3.11 &>/dev/null && echo "  Python: $(python3.11 --version 2>&1)"
 command -v python3.12 &>/dev/null && echo "  Python: $(python3.12 --version 2>&1)"
 command -v python3.13 &>/dev/null && echo "  Python: $(python3.13 --version 2>&1)"
 command -v python3.14 &>/dev/null && echo "  Python: $(python3.14 --version 2>&1)"
-command -v docker &>/dev/null && echo "  Docker: $(docker --version)"
-command -v terraform &>/dev/null && echo "  Terraform: $(terraform version | head -n1)"
+command -v docker &>/dev/null && echo "  Docker: $(docker --version 2>&1)"
+command -v terraform &>/dev/null && echo "  Terraform: $(terraform version 2>&1 | head -n1)"
 command -v aws &>/dev/null && echo "  AWS CLI: $(aws --version 2>&1)"
 command -v localstack &>/dev/null && echo "  LocalStack: $(localstack --version 2>&1)"
+command -v java &>/dev/null && echo "  Java: $(java -version 2>&1 | head -n1)"
+command -v spark-submit &>/dev/null && echo "  Apache Spark $(spark-submit --version 2>&1 | head -n1)"
+command -v trino &>/dev/null && echo "  Apache Trino $(trino --version 2>&1)"
+python3.11 -m pip show jupyter &>/dev/null && echo "  Jupyter: $(python3.11 -m pip show jupyter 2>/dev/null | grep Version | awk '{print $2}')"
 command -v jq &>/dev/null && echo "  jq: $(jq --version 2>&1)"
 
 echo ""
@@ -1601,7 +1933,7 @@ print_summary() {
         echo -e "${YELLOW}DRY RUN COMPLETE${NC} - No changes were made"
         echo ""
         echo "Run without -n flag to perform the actual installation:"
-        echo "  ./workspace-setup.sh"
+        echo "  ./setup-environment.sh"
         echo ""
         return
     fi
@@ -1718,6 +2050,8 @@ main() {
     install_python "3.12"
     install_python "3.13"
     install_python "3.14"
+    install_nodejs
+    install_java_openjdk
     install_vscode
     install_intellij
     install_pycharm
@@ -1730,10 +2064,13 @@ main() {
     configure_mongodb_bind
     configure_mongodb_auth
     install_mongodb_compass
-    install_nodejs
     install_terraform
     install_awscli
+    install_apache_spark
+    install_apache_trino
+    install_jupyter_notebook
     install_localstack
+    configure_sshd
     configure_dnsmasq
 
     # Verification and summary
