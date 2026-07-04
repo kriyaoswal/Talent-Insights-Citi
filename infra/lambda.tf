@@ -13,7 +13,7 @@ module "lambda" {
   tracing_mode    = "PassThrough"
   build_in_docker = false
   store_on_s3     = data.aws_caller_identity.this.id != "000000000000"
-  s3_bucket       = data.aws_caller_identity.this.id != "000000000000" ? aws_s3_bucket.this.id : null
+  s3_bucket       = data.aws_caller_identity.this.id != "000000000000" ? format("%s-tfstate-%s", var.aws_project, local.app_id) : null
   s3_prefix       = data.aws_caller_identity.this.id != "000000000000" ? format("lambda/%s/%s/", local.app_id, each.value.name) : null
 
   source_path = [{
@@ -77,7 +77,7 @@ resource "aws_sqs_queue" "this" {
 }
 
 resource "null_resource" "hot_reload" {
-  for_each = {for k, v in local.function_names : k => v if data.aws_caller_identity.this.id == "000000000000"}
+  for_each = { for k, v in local.function_names : k => v if data.aws_caller_identity.this.id == "000000000000" }
 
   triggers = {
     source_code_hash = module.lambda[each.key].lambda_function_source_code_hash
