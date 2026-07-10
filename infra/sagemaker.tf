@@ -30,6 +30,7 @@ resource "aws_glue_job" "this" {
   name              = format("%s-%s-%s", var.aws_project, each.value.name, local.app_id)
   role_arn          = one(aws_iam_role.glue.*.arn)
   glue_version      = each.value.glue_version
+  worker_type       = "G.1X"
   number_of_workers = 2
   max_retries       = 0
   timeout           = 300
@@ -49,9 +50,9 @@ resource "aws_glue_job" "this" {
     "--job-language"                     = each.value.runtime
     "--additional-python-modules"        = each.value.modules
     "--TempDir"                          = format("s3://%s/spark/_temp/", one(aws_s3_bucket.this.*.id))
-    "--BRONZE_PATH"                      = format("s3://%s/spark/bronze/", one(aws_s3_bucket.this.*.id))
-    "--SILVER_PATH"                      = format("s3://%s/spark/silver/", one(aws_s3_bucket.this.*.id))
-    "--GOLD_PATH"                        = format("s3://%s/spark/gold/", one(aws_s3_bucket.this.*.id))
+    "--BRONZE_LAYER"                     = format("s3://%s/spark/bronze/", one(aws_s3_bucket.this.*.id))
+    "--SILVER_LAYER"                     = format("s3://%s/spark/silver/", one(aws_s3_bucket.this.*.id))
+    "--GOLD_LAYER"                       = format("s3://%s/spark/gold/", one(aws_s3_bucket.this.*.id))
   }
 
   tags = local.app_tags
