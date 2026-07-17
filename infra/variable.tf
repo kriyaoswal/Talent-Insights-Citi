@@ -16,6 +16,12 @@ variable "aws_app_code" {
   default     = "abcd1234"
 }
 
+variable "aws_ds_ip" {
+  description = "The AWS Directory Service ip address."
+  type        = string
+  default     = ""
+}
+
 variable "aws_vpc_id" {
   description = "The AWS VPC identifier."
   type        = string
@@ -46,8 +52,8 @@ variable "aws_mongo_host" {
   default     = null
 }
 
-variable "aws_sagemaker_enabled" {
-  description = "Enable or disable Jupyter Notebook (AWS SageMaker). Default: false (set to 'true' to enable it)."
+variable "aws_eks_enabled" {
+  description = "Enable or disable Jupyter Notebook (AWS EKS). Default: false (set to 'true' to enable it)."
   type        = bool
   default     = false
 }

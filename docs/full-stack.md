@@ -1,6 +1,6 @@
 # Coding Workshop - Full Stack Guide
 
-> [Main Guide](./README.md) | [Validation Guide](./validation.md) | [Evaluation Guide](./evaluation.md) | [Testing Guide](./testing.md) | **Full Stack Guide** | [Data Engineer Guide](./data-engineer.md)
+> [Main Guide](./README.md) | [Validation Guide](./validation.md) | **Full Stack Guide** | [Data Engineer Guide](./data-engineer.md) | [System Engineer Guide](./system-engineer.md) | [UI/UX Engineer Guide](./ui-ux-engineer.md)
 
 ## Overview
 
@@ -8,6 +8,11 @@ This guide provides directions and guidelines on implementation expectations
 but you are free to exercise your creativity to showcase your technical skills
 combined with soft skills such as curiosity, observability, and ability to
 drive / deliver value.
+
+* [Architecture Diagram](#architecture-diagram)
+* [Evaluation Expectations](#evaluation-expectations)
+* [Testing Expectations](#testing-expectations)
+* [Implementation Expectations](#implementation-expectations)
 
 ## Architecture Diagram
 
@@ -35,6 +40,125 @@ graph TD
     Lambda -->|Reads/Writes| DB_PG
     Lambda -->|Reads/Writes| DB_Mongo
 ```
+
+## Evaluation Expectations
+
+1. **Implementation**
+
+  - Application runs successfully in local development and cloud environments.
+  - Frontend and backend integration supports complete CRUD workflows.
+  - Infrastructure dependencies (API, storage, and databases) are configured correctly.
+  - Deployment process is reproducible and produces verifiable outputs.
+
+2. **Design**
+
+  - UI layout is intuitive, responsive, and accessible across common screen sizes.
+  - Information architecture is clear, with user flows that minimize friction.
+  - Design choices are consistent (typography, spacing, colors, and interaction states).
+  - Backend and frontend boundaries are clean, with maintainable API contracts.
+
+3. **Code**
+
+  - Code is modular and organized by feature/domain rather than monolithic files.
+  - Error handling, validation, and edge cases are addressed in both layers.
+  - Naming, formatting, and linting conventions are consistently applied.
+  - Reusable components and utilities are favored over copy-paste implementations.
+
+4. **Testing**
+
+  - Unit and integration tests cover critical business logic and API contracts.
+  - Frontend behavior is validated for core user journeys and error states.
+  - Manual validation confirms end-to-end flow from UI through persistence layers.
+  - Test artifacts (commands, results, and known gaps) are documented clearly.
+
+5. **Experience**
+
+  - Project can be set up and run locally using documented commands with minimal friction.
+  - README/update notes clearly explain architecture, trade-offs, and assumptions.
+  - User interactions are smooth, with clear feedback for loading, success, and failure states.
+  - Delivery quality demonstrates ownership, communication clarity, and pragmatic decisions.
+
+Each technical competency is scored on a scale of 1 (lowest) to 10 (highest). The technical assessment result is the average of those scores. The soft skills are evaluated using the same scoring approach. The final overall evaluation is the average of the technical and soft skills results.
+
+A final score of 9 or higher is classified as **Excellent**, 7 or higher as **Good**, 5 or higher as **Satisfactory**, and below 5 as **Incomplete**.
+
+## Testing Expectations
+
+### Backend Testing
+
+1. Unit Tests: Test individual Lambda functions in isolation.
+2. Integration Tests: Test API endpoints with actual database connections.
+3. Error Handling Tests: Test validation and error scenarios for CRUD operations.
+
+### Frontend Testing
+
+1. Component Tests: Test React components using Jest and React Testing Library.
+2. API Integration Tests: Test API service functions with mocked responses.
+3. End-to-End Tests: Test complete user workflows using tools like Cypress or Selenium.
+
+### Performance Testing
+
+1. Load Testing: Test API endpoints under high concurrent load using tools like Artillery or JMeter.
+2. Performance Monitoring: Monitor response times and resource usage to ensure optimal performance.
+
+### Test Coverage Goals
+
+* Backend Components: 80%+ code coverage
+* Frontend Components: 80%+ code coverage
+* API Endpoints: 90%+ coverage for all CRUD operations
+* Error Handling: 90%+ coverage for validation and error cases
+* Critical User Paths: 100% E2E test coverage
+
+### Examples: How To Test
+
+#### Local Development
+
+To test your backend changes locally:
+
+```sh
+# Example: Get all records for {{service-name}}
+curl -X GET https://localhost:3001/api/{{service-name}} \
+     -H "Content-Type: application/json"
+```
+
+Replace `{{service-name}}` with corresponding service name
+(e.g. `python-service`).
+
+To tail backend logs in real-time:
+
+```sh
+# Example: Get logs for {{service-name}}
+AWS_ENDPOINT_URL="http://localhost:4566" \
+    aws logs tail /aws/lambda/{{function-name}} \
+        --follow --format short --color on
+```
+
+Replace `{{function-name}}` with corresponding service name
+(e.g. `coding-workshop-python-service-abcd1234`).
+
+#### Cloud Deployment
+
+To test your backend changes in the cloud:
+
+```sh
+# Example: Get all records for {{service-name}}
+curl -X GET https://{API_BASE_URL}/api/{{service-name}} \
+     -H "Content-Type: application/json"
+```
+
+Replace `{{service-name}}` with corresponding service name
+(e.g. `python-service`).
+
+To tail backend logs in real-time:
+
+```sh
+# Example: Get logs for {{service-name}}
+aws logs tail /aws/lambda/{{function-name}} \
+    --follow --format short --color on
+```
+
+Replace `{{function-name}}` with corresponding service name
+(e.g. `coding-workshop-python-service-abcd1234`).
 
 ## Implementation Expectations
 
@@ -261,9 +385,9 @@ Secure access is essential to protect data and ensure users only perform permitt
   <ol>
     <li><a href="./README.md">Main Guide</a></li>
     <li><a href="./validation.md">Validation Guide</a></li>
-    <li><a href="./evaluation.md">Evaluation Guide</a></li>
-    <li><a href="./testing.md">Testing Guide</a></li>
     <li aria-current="page">Full Stack Guide</li>
     <li><a href="./data-engineer.md">Data Engineer Guide</a></li>
+    <li><a href="./system-engineer.md">System Engineer Guide</a></li>
+    <li><a href="./ui-ux-engineer.md">UI/UX Engineer Guide</a></li>
   </ol>
 </nav>
