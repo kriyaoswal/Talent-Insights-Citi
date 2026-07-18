@@ -10,31 +10,31 @@ set +e
 # CONFIGURATION
 # ============================================================================
 
-PYENV_VERSION="3.13"
-JAVA_VERSION="21"
-NODEJS_VERSION="22"
-LOCALSTACK_VERSION="2026.6.0"
-JUPYTER_PORT="${JUPYTER_PORT:-8888}"
-POSTGRES_VERSION="16"
+PYENV_VERSION="${PYENV_VERSION:-3.13}"
+JAVA_VERSION="${JAVA_VERSION:-21}"
+NODEJS_VERSION="${NODEJS_VERSION:-22}"
+INTELLIJ_EDITION="${INTELLIJ_EDITION:-community}"
+PYCHARM_EDITION="${PYCHARM_EDITION:-community}"
+POSTGRES_VERSION="${POSTGRES_VERSION:-18}"
 POSTGRES_USER="${POSTGRES_USER:-postgres}"
 POSTGRES_PASS="${POSTGRES_PASS:-postgres123}"
-MONGODB_VERSION="7.0"
-COMPASS_VERSION="1.43.0"
+MONGODB_VERSION="${MONGODB_VERSION:-8.0}"
 MONGO_USER="${MONGO_USER:-mongo}"
 MONGO_PASS="${MONGO_PASS:-mongo123}"
-SPARK_VERSION="4.1.2"
-TRINO_VERSION="476"
+COMPASS_VERSION="${COMPASS_VERSION:-1.49.12}"
+DOCKER_GROUP_ACTIVATED=${DOCKER_GROUP_ACTIVATED:-false}
+KUBECTL_VERSION="${KUBECTL_VERSION:-1.36.2}"
+HELM_VERSION="${HELM_VERSION:-4.2.3}"
+LOCALSTACK_VERSION="${LOCALSTACK_VERSION:-2026.6.0}"
+JUPYTER_PORT="${JUPYTER_PORT:-8888}"
+SPARK_VERSION="${SPARK_VERSION:-4.1.2}"
+TRINO_VERSION="${TRINO_VERSION:-476}"
+DNSMASQ_INSTALL="${DNSMASQ_INSTALL:-false}"
 
 # Retry configuration
 MAX_RETRIES=3
 RETRY_DELAY=5
-
-# Command-line arguments
 DRY_RUN=false
-INSTALL_DNSMASQ=false
-INTELLIJ_EDITION="community"
-PYCHARM_EDITION="community"
-DOCKER_GROUP_ACTIVATED=${DOCKER_GROUP_ACTIVATED:-false}
 
 # Track failures
 declare -a FAILURES=()
@@ -167,7 +167,7 @@ install_prerequisites() {
     fi
 
     local packages="ca-certificates curl python3-pip gnupg lsb-release apt-transport-https software-properties-common unzip wget jq"
-    [ "$INSTALL_DNSMASQ" = true ] && packages="$packages dnsmasq"
+    [ "$DNSMASQ_INSTALL" = true ] && packages="$packages dnsmasq"
 
     print_info "Updating system and installing prerequisites..."
     if retry_command $MAX_RETRIES "sudo apt update && sudo apt install -y $packages"; then
@@ -1110,7 +1110,7 @@ configure_sshd() {
 configure_dnsmasq() {
     print_section "dnsmasq Configuration"
 
-    if [ "$INSTALL_DNSMASQ" != true ]; then
+    if [ "$DNSMASQ_INSTALL" != true ]; then
         print_info "dnsmasq installation not requested (use -d flag)"
         return
     fi
@@ -1127,26 +1127,95 @@ configure_dnsmasq() {
 
     print_info "Configuring dnsmasq for LocalStack..."
 
-    # Create dnsmasq configuration for LocalStack
-    local dnsmasq_conf="/etc/dnsmasq.d/localstack.conf"
+    # Step 1: Check if port 53 is already in use
+    local port_user=$(sudo lsof -i :53 2>/dev/null | grep -v COMMAND | awk '{print $1}' | sort -u | head -1)
+    if [ -n "$port_user" ]; then
+        print_info "Port 53 is currently used by: $port_user"
 
-    if [ ! -f "$dnsmasq_conf" ]; then
-        sudo tee "$dnsmasq_conf" > /dev/null << EOF
+        # If systemd-resolved is using it, disable it
+        if [ "$port_user" = "systemd-resolv" ] || sudo systemctl is-active --quiet systemd-resolved; then
+            print_info "Disabling systemd-resolved to free port 53..."
+            if sudo systemctl stop systemd-resolved && sudo systemctl disable systemd-resolved; then
+                print_status "systemd-resolved stopped and disabled"
+            else
+                print_error "Failed to stop systemd-resolved"
+                add_failure "Cannot free port 53 from systemd-resolved"
+                return
+            fi
+        else
+            print_error "Port 53 is in use by $port_user and it's not systemd-resolved"
+            add_failure "Cannot start dnsmasq: port 53 already in use"
+            return
+        fi
+    fi
+
+    # Step 2: Create dnsmasq configuration for LocalStack
+    local dnsmasq_conf="/etc/dnsmasq.d/localstack.conf"
+    local dnsmasq_temp_conf
+    local dnsmasq_config_changed=false
+
+    dnsmasq_temp_conf=$(mktemp)
+    cat > "$dnsmasq_temp_conf" <<'EOF'
 # LocalStack DNS configuration
+address=/localhost/127.0.0.1
+address=/.localhost/127.0.0.1
 address=/.localhost.localstack.cloud/127.0.0.1
 server=8.8.8.8
 EOF
-        print_status "Created LocalStack dnsmasq configuration"
+
+    if [ ! -f "$dnsmasq_conf" ] || ! sudo cmp -s "$dnsmasq_temp_conf" "$dnsmasq_conf"; then
+        sudo install -o root -g root -m 644 "$dnsmasq_temp_conf" "$dnsmasq_conf"
+        print_status "Written LocalStack dnsmasq configuration"
+        dnsmasq_config_changed=true
     else
-        print_info "dnsmasq configuration already exists"
+        print_info "dnsmasq configuration already up to date"
+    fi
+    rm -f "$dnsmasq_temp_conf"
+
+    # Step 3: Restart dnsmasq with retry logic
+    if sudo systemctl is-active --quiet dnsmasq && [ "$dnsmasq_config_changed" = false ]; then
+        print_status "dnsmasq is already running and configuration is unchanged"
+        if sudo systemctl enable dnsmasq >/dev/null 2>&1; then
+            print_status "dnsmasq enabled for auto-start"
+        fi
+        return 0
     fi
 
-    # Restart dnsmasq
-    if sudo systemctl restart dnsmasq && sudo systemctl enable dnsmasq; then
-        print_status "dnsmasq configured and restarted"
-    else
-        add_failure "Failed to configure dnsmasq"
-    fi
+    print_info "Starting dnsmasq service..."
+    local attempt=1
+    while [ $attempt -le 3 ]; do
+        if sudo systemctl restart dnsmasq; then
+            # Verify it's running
+            if sudo systemctl is-active --quiet dnsmasq; then
+                print_status "dnsmasq started successfully"
+                if sudo systemctl enable dnsmasq; then
+                    print_status "dnsmasq enabled for auto-start"
+                else
+                    print_error "Warning: dnsmasq not enabled for auto-start"
+                fi
+                return 0
+            else
+                print_error "dnsmasq service restarted but not active"
+            fi
+        else
+            print_error "Attempt $attempt to start dnsmasq failed"
+        fi
+
+        if [ $attempt -lt 3 ]; then
+            print_info "Retrying in 3 seconds..."
+            sleep 3
+        fi
+        ((attempt++))
+    done
+
+    # If we get here, dnsmasq failed to start
+    print_error "Failed to start dnsmasq after 3 attempts"
+    print_info "Checking dnsmasq status..."
+    sudo systemctl status dnsmasq --no-pager || true
+    print_info "Checking dnsmasq logs..."
+    sudo journalctl -u dnsmasq -n 10 --no-pager || true
+
+    add_failure "Failed to configure dnsmasq"
 }
 
 install_terraform() {
@@ -1224,34 +1293,108 @@ install_localstack() {
         return
     fi
 
-    if [ -x "$localstack_bin" ]; then
-        print_info "LocalStack already installed: $("$localstack_bin" --version 2>/dev/null || echo "$LOCALSTACK_VERSION")"
-        return
-    fi
-
-    print_info "Installing LocalStack $LOCALSTACK_VERSION..."
-
     # Ensure ~/.local/bin exists and is in PATH
     mkdir -p "$ACTUAL_HOME/.local/bin"
     export PATH="$ACTUAL_HOME/.local/bin:$PATH"
 
-    # Install via pip
-    if python3 -m pip install --user "localstack==${LOCALSTACK_VERSION}"; then
-        if [ -x "$localstack_bin" ]; then
-            print_status "LocalStack installed: $("$localstack_bin" --version 2>/dev/null || echo "$LOCALSTACK_VERSION")"
-        else
-            print_status "LocalStack installed: $LOCALSTACK_VERSION"
-        fi
+    if [ -x "$localstack_bin" ]; then
+        print_info "LocalStack already installed: $("$localstack_bin" --version 2>/dev/null || echo "$LOCALSTACK_VERSION")"
+    else
+        print_info "Installing LocalStack $LOCALSTACK_VERSION..."
 
-        # Ensure ~/.local/bin is in PATH for future sessions
+        if python3 -m pip install --user "localstack==${LOCALSTACK_VERSION}"; then
+            if [ -x "$localstack_bin" ]; then
+                print_status "LocalStack installed: $("$localstack_bin" --version 2>/dev/null || echo "$LOCALSTACK_VERSION")"
+            else
+                print_status "LocalStack installed: $LOCALSTACK_VERSION"
+            fi
+
+            if ! grep -q 'export PATH="$HOME/.local/bin:$PATH"' "$ACTUAL_HOME/.bashrc" 2>/dev/null; then
+                echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$ACTUAL_HOME/.bashrc"
+            fi
+        else
+            add_failure "Failed to install LocalStack"
+            return
+        fi
+    fi
+
+    print_info "Starting LocalStack..."
+    if "$localstack_bin" start -d >/dev/null 2>&1; then
+        print_status "LocalStack started in the background"
+    elif pgrep -f "localstack.*start" >/dev/null 2>&1; then
+        print_status "LocalStack is already running"
+    else
+        add_failure "Failed to start LocalStack"
+    fi
+
+    print_info "LocalStack accessible at: http://localhost:4566"
+}
+
+install_kubectl() {
+    print_section "kubectl"
+
+    local kubectl_bin="$ACTUAL_HOME/.local/bin/kubectl"
+
+    if is_dry_run; then
+        [ -x "$kubectl_bin" ] && print_status "Already installed" || print_info "Would install kubectl $KUBECTL_VERSION"
+        return
+    fi
+
+    if [ -x "$kubectl_bin" ]; then
+        print_info "kubectl already installed: $($kubectl_bin version --client --short 2>/dev/null || echo "version unknown")"
+        return
+    fi
+
+    print_info "Installing kubectl $KUBECTL_VERSION..."
+    mkdir -p "$ACTUAL_HOME/.local/bin"
+
+    if curl -fsSL "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o "$kubectl_bin" && chmod +x "$kubectl_bin"; then
+        print_status "kubectl installed: $($kubectl_bin version --client --short 2>/dev/null || echo "$KUBECTL_VERSION")"
+
         if ! grep -q 'export PATH="$HOME/.local/bin:$PATH"' "$ACTUAL_HOME/.bashrc" 2>/dev/null; then
             echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$ACTUAL_HOME/.bashrc"
         fi
-
-        print_info "LocalStack accessible at: http://localhost:4566"
     else
-        add_failure "Failed to install LocalStack"
+        add_failure "Failed to install kubectl"
     fi
+}
+
+install_helm() {
+    print_section "Helm"
+
+    local helm_bin="$ACTUAL_HOME/.local/bin/helm"
+
+    if is_dry_run; then
+        [ -x "$helm_bin" ] && print_status "Already installed" || print_info "Would install Helm $HELM_VERSION"
+        return
+    fi
+
+    if [ -x "$helm_bin" ]; then
+        print_info "Helm already installed: $($helm_bin version --short 2>/dev/null || echo "version unknown")"
+        return
+    fi
+
+    print_info "Installing Helm $HELM_VERSION..."
+    mkdir -p "$ACTUAL_HOME/.local/bin"
+
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+    cd "$tmp_dir" || return
+
+    if curl -fsSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" -o helm.tgz && \
+       tar -xzf helm.tgz && [ -x "linux-amd64/helm" ]; then
+        install -m 0755 "linux-amd64/helm" "$helm_bin"
+        print_status "Helm installed: $($helm_bin version --short 2>/dev/null || echo "$HELM_VERSION")"
+
+        if ! grep -q 'export PATH="$HOME/.local/bin:$PATH"' "$ACTUAL_HOME/.bashrc" 2>/dev/null; then
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$ACTUAL_HOME/.bashrc"
+        fi
+    else
+        add_failure "Failed to install Helm"
+    fi
+
+    cd - > /dev/null || true
+    rm -rf "$tmp_dir"
 }
 
 install_jupyter_notebook() {
@@ -1290,6 +1433,14 @@ install_jupyter_notebook() {
         if ! grep -q 'export PATH="$HOME/.local/bin:$PATH"' "$ACTUAL_HOME/.bashrc" 2>/dev/null; then
             echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$ACTUAL_HOME/.bashrc"
         fi
+
+        print_info "Starting Jupyter Notebook on port $JUPYTER_PORT..."
+        if nohup jupyter notebook --ip=0.0.0.0 --port="$JUPYTER_PORT" --no-browser > "$ACTUAL_HOME/.local/share/jupyter-notebook.log" 2>&1 & then
+            print_status "Jupyter Notebook started in the background"
+            print_info "Open http://localhost:$JUPYTER_PORT"
+        else
+            add_failure "Failed to start Jupyter Notebook"
+        fi
     else
         add_failure "Failed to install Jupyter"
     fi
@@ -1319,7 +1470,7 @@ ORIGINAL_ARGS="$*"
 while [[ $# -gt 0 ]]; do
     case $1 in
         -n) DRY_RUN=true; shift ;;
-        -d) INSTALL_DNSMASQ=true; shift ;;
+        -d) DNSMASQ_INSTALL=true; shift ;;
         -h|--help) show_help; exit 0 ;;
         --intellij-ultimate) INTELLIJ_EDITION="ultimate"; shift ;;
         --pycharm-professional) PYCHARM_EDITION="professional"; shift ;;
@@ -1352,7 +1503,6 @@ main() {
     install_vscode
     install_intellij
     install_pycharm
-    install_docker
 
     # Install databases
     install_postgres
@@ -1362,6 +1512,11 @@ main() {
     configure_mongodb_bind
     configure_mongodb_auth
     install_mongodb_compass
+
+    # Install container tools
+    install_docker
+    install_kubectl
+    install_helm
 
     # Install cloud tools
     install_terraform
