@@ -73,22 +73,17 @@ locals {
   ]
   data_names_python = {
     for name in local.data_dirs_python : name => {
-      name           = name
-      runtime        = "python"
-      glue_version   = "5.0"
-      python_version = "3"
-      path           = abspath(format("%s/../data/%s", path.module, name))
-      file           = "job.py"
-      modules        = join(",", compact(split("\n", file(abspath(format("%s/../data/%s/requirements.txt", path.module, name))))))
+      name    = name
+      path    = abspath(format("%s/../data/%s", path.module, name))
+      file    = "job.py"
+      modules = join(",", compact(split("\n", file(abspath(format("%s/../data/%s/requirements.txt", path.module, name))))))
     }
   }
   data_names_java = {
     for name in local.data_dirs_java : name => {
-      name         = name
-      runtime      = "scala"
-      glue_version = "5.0"
-      path         = abspath(format("%s/../data/%s", path.module, name))
-      file         = "Job.java"
+      name = name
+      path = abspath(format("%s/../data/%s", path.module, name))
+      file = "Job.java"
     }
   }
   job_names      = merge(local.data_names_python, local.data_names_java)
@@ -125,11 +120,6 @@ locals {
   )
   eks_role_arn = format(
     "arn:%s:iam::%s:role/%s-eks-%s-%s",
-    data.aws_partition.this.partition, data.aws_caller_identity.this.id,
-    var.aws_project, data.aws_region.this.region, local.app_id
-  )
-  glue_role_arn = format(
-    "arn:%s:iam::%s:role/%s-glue-%s-%s",
     data.aws_partition.this.partition, data.aws_caller_identity.this.id,
     var.aws_project, data.aws_region.this.region, local.app_id
   )
