@@ -3,6 +3,10 @@ pythonJob:
   name: "python-job"
   scriptContent: ""
   requirementsContent: ""
+  # Plain environment variables for the job container (name: value).
+  env: {}
+  # Sensitive variables (e.g. POSTGRES_PASS); stored in a Kubernetes Secret.
+  secretEnv: {}
   backoffLimit: 4
   ttlSecondsAfterFinished: 100
   restartPolicy: Never

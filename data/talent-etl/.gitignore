@@ -1,0 +1,8 @@
+# Local data lake output (Bronze/Silver/Gold + run manifests)
+lake/
+
+# Ad-hoc data exports (e.g. zips to share)
+export/
+
+# Performance-test scratch data (scaled copies, lakes)
+perf/work/

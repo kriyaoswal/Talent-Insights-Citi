@@ -1,0 +1,41 @@
+competency_id,name,category
+1,Python,Technical
+2,SQL,Technical
+3,Cloud Architecture,Technical
+4,Data Modeling,Technical
+5,Systems Design,Technical
+6,Test Automation,Technical
+7,Security Fundamentals,Technical
+8,Machine Learning,Technical
+9,API Design,Technical
+10,DevOps Practices,Technical
+11,People Leadership,Leadership
+12,Strategic Thinking,Leadership
+13,Change Management,Leadership
+14,Coaching & Mentoring,Leadership
+15,Decision Making,Leadership
+16,Conflict Resolution,Leadership
+17,Stakeholder Management,Domain
+18,Project Management,Domain
+19,Financial Acumen,Domain
+20,Customer Empathy,Domain
+21,Communication,Domain
+22,Negotiation,Domain
+23,Regulatory Compliance,Domain
+24,Market Analysis,Domain
+25,Presentation Skills,Domain
+26,Cross-functional Collaboration,Domain
+27,Agile Practices,Domain
+28,Vendor Management,Domain
+29,Risk Management,Domain
+30,Data Privacy,Domain
+31,Public Speaking,Domain
+32,Time Management,Domain
+33,Onboarding & Enablement,Domain
+34,Technical Writing,Domain
+35,Incident Response,Technical
+36,Performance Tuning,Technical
+37,Accessibility,Technical
+38,Localization,Domain
+39,Pricing Strategy,Domain
+40,Forecasting,Domain

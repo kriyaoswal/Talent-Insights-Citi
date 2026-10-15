@@ -13,6 +13,20 @@ data:
     {{ .Values.pythonJob.requirementsContent | nindent 4 }}
 ---
 {{- end }}
+{{- if .Values.pythonJob.secretEnv }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "name" . }}-{{ .Values.pythonJob.name }}-env
+  labels:
+    {{- include "labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  {{- range $key, $value := .Values.pythonJob.secretEnv }}
+  {{ $key }}: {{ $value | toString | quote }}
+  {{- end }}
+---
+{{- end }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -37,6 +51,18 @@ spec:
                 pip install --no-cache-dir -r /app/requirements.txt
               fi
               python /app/job.py
+          {{- with .Values.pythonJob.env }}
+          env:
+            {{- range $key, $value := . }}
+            - name: {{ $key }}
+              value: {{ $value | toString | quote }}
+            {{- end }}
+          {{- end }}
+          {{- if .Values.pythonJob.secretEnv }}
+          envFrom:
+            - secretRef:
+                name: {{ include "name" . }}-{{ .Values.pythonJob.name }}-env
+          {{- end }}
           {{- if .Values.pythonJob.scriptContent }}
           volumeMounts:
             - name: script

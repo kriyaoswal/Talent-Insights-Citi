@@ -66,6 +66,37 @@ resource "null_resource" "helm_chart" {
   }
 }
 
+# Settings for the data engineering jobs (data/*): where the sources and the
+# lake are, and how to reach Aurora. The password goes into a Kubernetes Secret
+# (pythonJob.secretEnv), everything else into plain environment variables.
+locals {
+  python_job_env = {
+    IS_LOCAL           = local.env_vars.IS_LOCAL
+    AWS_REGION         = data.aws_region.this.region
+    AWS_DEFAULT_REGION = data.aws_region.this.region
+    POSTGRES_HOST      = local.env_vars.POSTGRES_HOST
+    POSTGRES_PORT      = tostring(local.env_vars.POSTGRES_PORT)
+    POSTGRES_NAME      = local.env_vars.POSTGRES_NAME
+    POSTGRES_USER      = local.env_vars.POSTGRES_USER
+    DATA_LAKE_BUCKET   = aws_s3_bucket.datalake.id
+    LAKE_ROOT          = format("s3://%s/lake", aws_s3_bucket.datalake.id)
+    EVENTS_SOURCE_URI  = format("s3://%s/source/learning_activity", aws_s3_bucket.datalake.id)
+    SEED_SOURCE_URI    = format("s3://%s/source/postgres_seed", aws_s3_bucket.datalake.id)
+  }
+}
+
+resource "local_sensitive_file" "python_job_values" {
+  for_each        = data.aws_caller_identity.this.id != "000000000000" && var.aws_eks_enabled ? local.data_names_python : {}
+  filename        = format("%s/.terraform/helm-values-%s.yaml", path.module, each.key)
+  file_permission = "0600"
+  content = yamlencode({
+    pythonJob = {
+      env       = local.python_job_env
+      secretEnv = { POSTGRES_PASS = local.env_vars.POSTGRES_PASS }
+    }
+  })
+}
+
 resource "null_resource" "helm_python_job" {
   for_each = data.aws_caller_identity.this.id != "000000000000" && var.aws_eks_enabled ? local.data_names_python : {}
 
@@ -82,9 +113,10 @@ resource "null_resource" "helm_python_job" {
         --set pythonJob.name=${replace(each.key, "_", "-")} \
         --set-file pythonJob.scriptContent=${each.value.path}/${each.value.file} \
         --set-file pythonJob.requirementsContent=${each.value.path}/${each.value.reqs} \
+        --values ${local_sensitive_file.python_job_values[each.key].filename} \
         --namespace default
     EOT
   }
 
-  depends_on = [null_resource.helm_chart]
+  depends_on = [null_resource.helm_chart, null_resource.datalake_sources]
 }

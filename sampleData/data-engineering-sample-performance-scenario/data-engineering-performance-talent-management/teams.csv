@@ -1,0 +1,101 @@
+team_id,name,department
+1,Team LightYellow-1,Sales
+2,Team DarkTurquoise-2,Design
+3,Team DeepPink-3,Design
+4,Team LightGray-4,Sales
+5,Team OliveDrab-5,Operations
+6,Team SlateBlue-6,Customer Support
+7,Team DarkMagenta-7,Finance
+8,Team Black-8,Product
+9,Team HoneyDew-9,Engineering
+10,Team HotPink-10,Data & Analytics
+11,Team PaleTurquoise-11,Data & Analytics
+12,Team PaleVioletRed-12,Customer Support
+13,Team Moccasin-13,Customer Support
+14,Team BlanchedAlmond-14,Marketing
+15,Team Cornsilk-15,Engineering
+16,Team Gold-16,Product
+17,Team Wheat-17,Data & Analytics
+18,Team LawnGreen-18,Human Resources
+19,Team YellowGreen-19,Data & Analytics
+20,Team DarkMagenta-20,Operations
+21,Team LightGoldenRodYellow-21,Human Resources
+22,Team GoldenRod-22,Product
+23,Team Yellow-23,Sales
+24,Team Thistle-24,Data & Analytics
+25,Team YellowGreen-25,Human Resources
+26,Team DarkGreen-26,Human Resources
+27,Team FloralWhite-27,Operations
+28,Team PapayaWhip-28,Human Resources
+29,Team Thistle-29,Product
+30,Team MediumBlue-30,Design
+31,Team LawnGreen-31,Customer Support
+32,Team MistyRose-32,Human Resources
+33,Team DarkTurquoise-33,Marketing
+34,Team GreenYellow-34,Operations
+35,Team Crimson-35,Data & Analytics
+36,Team SlateBlue-36,Marketing
+37,Team Red-37,Design
+38,Team Olive-38,Data & Analytics
+39,Team LemonChiffon-39,Product
+40,Team Moccasin-40,Finance
+41,Team GhostWhite-41,Finance
+42,Team Pink-42,Customer Support
+43,Team BurlyWood-43,Data & Analytics
+44,Team DarkMagenta-44,Marketing
+45,Team LightCoral-45,Design
+46,Team LightSalmon-46,Customer Support
+47,Team DarkGray-47,Engineering
+48,Team YellowGreen-48,Product
+49,Team Wheat-49,Sales
+50,Team HoneyDew-50,Operations
+51,Team Beige-51,Sales
+52,Team Ivory-52,Product
+53,Team White-53,Human Resources
+54,Team BlanchedAlmond-54,Human Resources
+55,Team LightGoldenRodYellow-55,Data & Analytics
+56,Team LightPink-56,Engineering
+57,Team MediumSlateBlue-57,Operations
+58,Team PaleGoldenRod-58,Data & Analytics
+59,Team SeaGreen-59,Human Resources
+60,Team DodgerBlue-60,Engineering
+61,Team LightCyan-61,Sales
+62,Team DarkKhaki-62,Sales
+63,Team LimeGreen-63,Marketing
+64,Team GhostWhite-64,Customer Support
+65,Team LightCyan-65,Finance
+66,Team DarkRed-66,Design
+67,Team MediumSlateBlue-67,Sales
+68,Team Fuchsia-68,Human Resources
+69,Team Lavender-69,Product
+70,Team PaleGoldenRod-70,Sales
+71,Team LightGreen-71,Design
+72,Team OldLace-72,Sales
+73,Team DodgerBlue-73,Product
+74,Team DarkSeaGreen-74,Marketing
+75,Team DarkTurquoise-75,Design
+76,Team Wheat-76,Data & Analytics
+77,Team Ivory-77,Customer Support
+78,Team PaleTurquoise-78,Sales
+79,Team Tomato-79,Customer Support
+80,Team Crimson-80,Operations
+81,Team RosyBrown-81,Design
+82,Team White-82,Design
+83,Team Blue-83,Operations
+84,Team LightSteelBlue-84,Design
+85,Team Turquoise-85,Human Resources
+86,Team IndianRed-86,Data & Analytics
+87,Team BlanchedAlmond-87,Operations
+88,Team Green-88,Customer Support
+89,Team YellowGreen-89,Human Resources
+90,Team Cyan-90,Product
+91,Team HoneyDew-91,Finance
+92,Team SandyBrown-92,Human Resources
+93,Team Linen-93,Engineering
+94,Team Azure-94,Sales
+95,Team CornflowerBlue-95,Human Resources
+96,Team Thistle-96,Data & Analytics
+97,Team LightSalmon-97,Engineering
+98,Team DarkBlue-98,Operations
+99,Team LightBlue-99,Data & Analytics
+100,Team LightSlateGray-100,Human Resources
