@@ -10,11 +10,12 @@ the deployed job on AWS (EKS, Aurora PostgreSQL, S3 in `ap-south-1`).
 
 | Area | Result |
 |---|---|
-| Automated tests | **208 passed, 0 failed, 0 skipped** (`pytest`, about 2 minutes) |
+| Automated tests | **217 passed, 0 failed, 0 skipped** (`pytest`, about 2 minutes); raw output in [tests/results/](tests/results/) |
 | Line coverage of `job.py` | **98%**; every coverage goal in the guide met (table below) |
 | Functional tests 1–5 | all automated and passing |
-| Performance tests 1–5 | all run; **SLA met**, time linear up to 20x, answers exact at every scale |
+| Performance tests 1–5 | all run; time linear up to 20x, answers exact at every scale; **SLA met** locally and on AWS reruns (12 s), **missed on the first AWS load** (75 s) |
 | Cloud readiness | job run inside the **actual EKS image** in cloud mode (S3 + empty database): Gold identical to local |
+| **Answers cross-checked** | all 7 answers recomputed with **plain SQL and plain Python** (no pipeline code): every Gold row matches |
 | **Real AWS run** | deployed job on EKS succeeded twice: **15/15 Gold checks**, all 11 Gold tables in S3 **identical to local**, rerun copied 0 files (details below) |
 
 ## How to run
@@ -26,6 +27,7 @@ From `data/talent-etl`, with PostgreSQL loaded (`./scripts/load_source_db.sh`):
 .venv/bin/python job.py                                              # builds the local lake
 .venv/bin/python -m pytest -q tests --cov=job --cov-report=term-missing
 .venv/bin/python perf/run_perf.py --scales 1,5,10,20                 # about 5 minutes
+./scripts/test_evidence.sh                                           # full run, saves raw output to tests/results/
 ```
 
 Tests that need PostgreSQL, the local lake or the Jupyter kernel skip
@@ -41,6 +43,7 @@ themselves (with the reason) when those are unavailable. S3 tests use
 | 3 | Aggregation validation | `test_gold.py` (65) | every Gold definition on a hand-built dataset with known answers; the 7 headline answers on the real data; the "rating thirds" split matches pandas `qcut`; **each of the 18 definition guards rejects a deliberately corrupted row and names the rule** | ✅ |
 | 4 | Data quality validation | `test_pipeline_integration.py` | exact quarantine counts and reasons (13 `malformed_json`, 76 `null_employee_id`), 152 duplicates dropped, 53 dates repaired, 666 + 234 rows flagged; line accounting `read = written + quarantined + duplicates` | ✅ |
 | 5 | Idempotency validation | `test_pipeline_integration.py`, `test_cloud_mode.py` | the job run **twice**, locally and on S3: Silver and Gold identical, no duplicates, 0 event files re-copied, source database never overwritten | ✅ |
+| 3 | Aggregation validation: **independent cross-check** | `test_answers_crosscheck.py` (9) | every answer recomputed a second way that shares no code with `job.py`: plain SQL on the source PostgreSQL tables (Q1–Q3, Q5–Q7) and plain `json.loads` over the raw event files (Q4). Compared **row by row**: trend, latest rating and risk tier for all 2,000 employees; critical flag on all 4,000 assessments; the 357 candidates and their tiers; courses and certifications per employee; rating third and on-time rate for the 27 teams; all 40 competencies; all 1,595 distribution rows | ✅ |
 | – | Bronze immutability (guide's Bronze checklist) | `test_bronze_immutable.py` (5), `test_pipeline_integration.py` | after a rerun, **every Bronze file from the first run is byte-for-byte unchanged** and the rerun added only its own 7 table snapshots; an existing snapshot can't be replaced; a source file changed after landing leaves the landed file untouched and is counted (`files_changed_at_source`) | ✅ |
 
 **Key numbers verified on every run** (end-to-end test):
@@ -98,7 +101,8 @@ Measured per area by mapping each function of `job.py` to the guide's categories
 Deployed with `./bin/deploy-backend.sh` (`TF_VAR_aws_eks_enabled=true`), as in
 the guide. The job runs as a Kubernetes Job on EKS, reads Aurora over SSL, and
 reads and writes `s3://coding-workshop-datalake-<participant>/`. Numbers below
-are from the run records in `lake/_runs/run_date=2026-10-15/`.
+are from the run records in `lake/_runs/run_date=2026-10-15/`, copied to
+[tests/results/aws/](tests/results/aws/) together with the failed run's pod log.
 
 | Step | First run `3f7327b5e4ab` (empty Aurora, empty lake) | Rerun `68f44d213e76` (same inputs) |
 |---|---|---|
@@ -136,6 +140,18 @@ warnings, 14 charts.
 | Deploy planned to remove a tag from Aurora | the account's managed-services monitoring adds the tag `ams:rt:ams-monitoring-policy` | Terraform ignores that tag (`lifecycle.ignore_changes`) |
 | Notebook on S3: `No AWSAccessKey was presented` | the S3 library ignored `AWS_REGION` and sent requests to `us-east-1` | also set `AWS_DEFAULT_REGION=ap-south-1` (README) |
 
+## Where the evidence is stored
+
+| Evidence | Location |
+|---|---|
+| Every test by name with its result, line coverage | [tests/results/pytest_report.txt](tests/results/pytest_report.txt), [junit.xml](tests/results/junit.xml) |
+| Coverage per area | [tests/results/coverage_by_area.md](tests/results/coverage_by_area.md) |
+| AWS run records and the failed run's log | [tests/results/aws/](tests/results/aws/) |
+| Performance report, raw timings, chart | [perf/results/](perf/results/) |
+| The tests | [tests/](tests/) |
+
+`./scripts/test_evidence.sh` reruns the suite and rewrites the test files.
+
 ## Defects found by testing (and fixed)
 
 | Found by | Defect | Fix |
@@ -159,7 +175,7 @@ warnings, 14 charts.
   code. On AWS we also saw it handle a real network fault (the Aurora timeouts
   above), but not S3 throttling.
 - **Write-once Bronze is not deployed to AWS yet.** It was added after the AWS
-  runs above and tested locally and on moto S3 (all 208 tests). It takes
+  runs above and tested locally and on moto S3. It takes
   effect on AWS at the next deploy.
 - **The 30 s Pod Identity wait was not exercised on AWS**: it only runs when
   the association is first created, which had already happened.
@@ -174,7 +190,7 @@ warnings, 14 charts.
 ## Conclusion
 
 The pipeline meets every functional and performance expectation in the guide,
-with 208 automated tests, 98% coverage and each per-area coverage goal met. It
+with 217 automated tests, 98% coverage and each per-area coverage goal met. It
 produces the same answers locally, in cloud mode on S3, inside the EKS job
 image, and **deployed on AWS**, and it is safe to rerun. Two things to watch:
 memory (about 20x today's volume within the 2 GiB EKS limit) and the first full

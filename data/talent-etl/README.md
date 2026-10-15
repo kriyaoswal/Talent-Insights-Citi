@@ -471,8 +471,10 @@ PostgreSQL tables pass every `schema.sql` rule and every extra contract rule.
 .venv/bin/python -m pytest -q tests --cov=job --cov-report=term-missing
 ```
 
-208 tests, 98% line coverage of `job.py`, and every per-area coverage goal in
+217 tests, 98% line coverage of `job.py`, and every per-area coverage goal in
 the guide met. Commands, results and conclusions: **[TESTING.md](TESTING.md)**.
+Raw output (every test's result, coverage, AWS run records): [tests/results/](tests/results/),
+regenerated with `./scripts/test_evidence.sh`.
 
 | File | Covers |
 |---|---|
@@ -482,6 +484,7 @@ the guide met. Commands, results and conclusions: **[TESTING.md](TESTING.md)**.
 | `test_silver_events.py` | every event rule, including the date repair and its guardrail |
 | `test_silver_tables.py` | every contract rule type, cascading foreign keys, schema drift, soft flags |
 | `test_config.py` | local defaults, required cloud variables, no password in logs |
+| `test_answers_crosscheck.py` | the 7 answers recomputed independently (plain SQL on the source tables, plain Python on the raw event files) and compared with every Gold row |
 | `test_bronze_immutable.py` | Bronze is write-once: an existing snapshot is never replaced (and the error isn't retried), each run gets its own table snapshot, a changed source file leaves the landed file untouched and is counted, new files are still landed |
 | `test_resilience.py` | the real job under injected failures: dropped database connections, a failed write in each layer, permanent failure, failed Gold leaving previous Gold intact |
 | `test_retry.py` | backoff timing, giving up after max attempts, no retry on non-transient errors |
