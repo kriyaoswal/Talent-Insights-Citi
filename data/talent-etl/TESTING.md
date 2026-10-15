@@ -10,7 +10,7 @@ the deployed job on AWS (EKS, Aurora PostgreSQL, S3 in `ap-south-1`).
 
 | Area | Result |
 |---|---|
-| Automated tests | **217 passed, 0 failed, 0 skipped** (`pytest`, about 2 minutes); raw output in [tests/results/](tests/results/) |
+| Automated tests | **235 passed, 0 failed, 0 skipped** (`pytest`, about 2 minutes); raw output in [tests/results/](tests/results/) |
 | Line coverage of `job.py` | **98%**; every coverage goal in the guide met (table below) |
 | Functional tests 1–5 | all automated and passing |
 | Performance tests 1–5 | all run; time linear up to 20x, answers exact at every scale; **SLA met** locally and on AWS reruns (12 s), **missed on the first AWS load** (75 s) |
@@ -190,7 +190,7 @@ warnings, 14 charts.
 ## Conclusion
 
 The pipeline meets every functional and performance expectation in the guide,
-with 217 automated tests, 98% coverage and each per-area coverage goal met. It
+with 235 automated tests, 98% coverage and each per-area coverage goal met. It
 produces the same answers locally, in cloud mode on S3, inside the EKS job
 image, and **deployed on AWS**, and it is safe to rerun. Two things to watch:
 memory (about 20x today's volume within the 2 GiB EKS limit) and the first full

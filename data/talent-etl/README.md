@@ -416,6 +416,42 @@ cd data/talent-etl/notebooks && ../.venv/bin/jupyter lab
 `AWS_DEFAULT_REGION` is needed: the S3 library ignores `AWS_REGION`, sends the
 request to `us-east-1` and fails with `No AWSAccessKey was presented`.
 
+## Dashboard (React)
+
+A web version of the notebook: [`dashboard/`](dashboard/). Like the notebook it
+reads **only Gold**, live, from the local lake or from S3 (the same
+`LAKE_ROOT` setting), and never writes anything.
+
+```
+Gold (lake/ or s3://…) ──► dashboard/api.py (Python, read-only JSON) ──► dashboard/web (React) ──► browser
+```
+
+| Page | Shows |
+|---|---|
+| Overview | one card per question with its headline answer; the header shows the data source and the run it came from |
+| Q1–Q7 | the answer, how it is worked out where needed, charts, a searchable and filterable table, and the caveats |
+| Employee | everything about one employee across the seven questions |
+| Pipeline | records through each step, the 15 Gold checks and the recent runs, from the run records |
+
+**Run it** (two terminals, from `data/talent-etl`):
+
+```sh
+# 1. the API: local Gold by default
+.venv/bin/python dashboard/api.py
+#    or Gold on S3 (from the repository root, after ./bin/setup-participant.sh):
+#    set -a && source ENVIRONMENT.config && set +a
+#    export AWS_DEFAULT_REGION=ap-south-1 LAKE_ROOT=s3://coding-workshop-datalake-<participant>/lake
+#    data/talent-etl/.venv/bin/python data/talent-etl/dashboard/api.py
+
+# 2. the web app (first time: npm install)
+cd dashboard/web && npm install && npm run dev      # http://127.0.0.1:5173
+```
+
+The API listens on `127.0.0.1:8510` (`DASHBOARD_PORT` to change it); the web
+app forwards `/api` there. It lives under `data/talent-etl/`, not in the
+workshop's `backend/` or `frontend/`, so the deploy scripts don't pick it up:
+it's a local demo, with no login, and it is not deployed.
+
 ## Performance
 
 Run `.venv/bin/python perf/run_perf.py --scales 1,5,10,20` (about 5 minutes). It
@@ -471,7 +507,7 @@ PostgreSQL tables pass every `schema.sql` rule and every extra contract rule.
 .venv/bin/python -m pytest -q tests --cov=job --cov-report=term-missing
 ```
 
-217 tests, 98% line coverage of `job.py`, and every per-area coverage goal in
+235 tests, 98% line coverage of `job.py`, and every per-area coverage goal in
 the guide met. Commands, results and conclusions: **[TESTING.md](TESTING.md)**.
 Raw output (every test's result, coverage, AWS run records): [tests/results/](tests/results/),
 regenerated with `./scripts/test_evidence.sh`.
@@ -485,6 +521,7 @@ regenerated with `./scripts/test_evidence.sh`.
 | `test_silver_tables.py` | every contract rule type, cascading foreign keys, schema drift, soft flags |
 | `test_config.py` | local defaults, required cloud variables, no password in logs |
 | `test_answers_crosscheck.py` | the 7 answers recomputed independently (plain SQL on the source tables, plain Python on the raw event files) and compared with every Gold row |
+| `test_dashboard_api.py` | the dashboard API: every page's data, the headline numbers, bad requests, JSON-safe values, served over HTTP. Skipped without a Gold layer |
 | `test_bronze_immutable.py` | Bronze is write-once: an existing snapshot is never replaced (and the error isn't retried), each run gets its own table snapshot, a changed source file leaves the landed file untouched and is counted, new files are still landed |
 | `test_resilience.py` | the real job under injected failures: dropped database connections, a failed write in each layer, permanent failure, failed Gold leaving previous Gold intact |
 | `test_retry.py` | backoff timing, giving up after max attempts, no retry on non-transient errors |
