@@ -13,6 +13,15 @@ data:
     {{ .Values.pythonJob.requirementsContent | nindent 4 }}
 ---
 {{- end }}
+{{- with .Values.pythonJob.serviceAccount }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ . }}
+  labels:
+    {{- include "labels" $ | nindent 4 }}
+---
+{{- end }}
 {{- if .Values.pythonJob.secretEnv }}
 apiVersion: v1
 kind: Secret
@@ -39,6 +48,9 @@ spec:
       labels:
         {{- include "labels" . | nindent 8 }}
     spec:
+      {{- with .Values.pythonJob.serviceAccount }}
+      serviceAccountName: {{ . }}
+      {{- end }}
       containers:
         - name: {{ include "name" . }}-{{ .Values.pythonJob.name }}
           image: {{ .Values.pythonJob.image.repository }}:{{ .Values.pythonJob.image.tag }}

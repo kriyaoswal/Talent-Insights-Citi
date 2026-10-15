@@ -91,10 +91,87 @@ resource "local_sensitive_file" "python_job_values" {
   file_permission = "0600"
   content = yamlencode({
     pythonJob = {
-      env       = local.python_job_env
-      secretEnv = { POSTGRES_PASS = local.env_vars.POSTGRES_PASS }
+      # AWS access through EKS Pod Identity: this service account maps to the job's own role.
+      serviceAccount = replace(each.key, "_", "-")
+      env            = local.python_job_env
+      secretEnv      = { POSTGRES_PASS = local.env_vars.POSTGRES_PASS }
     }
   })
+}
+
+# EKS Pod Identity: each data job gets its own AWS role, allowed only on the data
+# lake bucket. (Pods can't use the node role: the nodes' metadata hop limit is 1,
+# and the node role holds far more than a job needs.)
+resource "aws_eks_addon" "pod_identity" {
+  count        = data.aws_caller_identity.this.id != "000000000000" && var.aws_eks_enabled ? 1 : 0
+  cluster_name = one(aws_eks_cluster.this.*.name)
+  addon_name   = "eks-pod-identity-agent"
+  tags         = local.app_tags
+
+  depends_on = [aws_eks_node_group.this]
+}
+
+resource "aws_iam_role" "data_job" {
+  for_each = data.aws_caller_identity.this.id != "000000000000" && var.aws_eks_enabled ? local.data_names_python : {}
+  name     = format("%s-%s-%s", var.aws_project, replace(each.key, "_", "-"), local.app_id)
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "pods.eks.amazonaws.com" }
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
+    }]
+  })
+
+  tags = local.app_tags
+}
+
+resource "aws_iam_role_policy" "data_job_datalake" {
+  for_each = aws_iam_role.data_job
+  name     = "datalake"
+  role     = each.value.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = aws_s3_bucket.datalake.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+        Resource = format("%s/*", aws_s3_bucket.datalake.arn)
+      },
+    ]
+  })
+}
+
+resource "aws_eks_pod_identity_association" "data_job" {
+  for_each        = aws_iam_role.data_job
+  cluster_name    = one(aws_eks_cluster.this.*.name)
+  namespace       = "default"
+  service_account = replace(each.key, "_", "-")
+  role_arn        = each.value.arn
+  tags            = local.app_tags
+
+  depends_on = [aws_eks_addon.pod_identity]
+}
+
+# A new association takes a few seconds before pods get its credentials;
+# a pod created sooner starts without them (NoCredentialsError).
+resource "null_resource" "pod_identity_wait" {
+  for_each = aws_eks_pod_identity_association.data_job
+
+  triggers = {
+    association_id = each.value.association_id
+  }
+
+  provisioner "local-exec" {
+    command = "sleep 30"
+  }
 }
 
 resource "null_resource" "helm_python_job" {
@@ -107,6 +184,7 @@ resource "null_resource" "helm_python_job" {
 
   provisioner "local-exec" {
     command = <<-EOT
+      helm uninstall ${replace(each.key, "_", "-")}-python-job --ignore-not-found --wait --namespace default && \
       helm upgrade --cleanup-on-fail \
         --install ${replace(each.key, "_", "-")}-python-job ./helm/ \
         --set pythonJob.enabled=true \
@@ -118,5 +196,12 @@ resource "null_resource" "helm_python_job" {
     EOT
   }
 
-  depends_on = [null_resource.helm_chart, null_resource.datalake_sources]
+  depends_on = [
+    null_resource.helm_chart,
+    null_resource.datalake_sources,
+    aws_eks_pod_identity_association.data_job, # the job's own AWS role (S3)
+    null_resource.pod_identity_wait,
+    aws_iam_role_policy.data_job_datalake,
+    aws_rds_cluster.this, # Aurora reachable from the cluster security group
+  ]
 }
