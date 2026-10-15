@@ -117,7 +117,7 @@ after 100 s. Its results stay in S3 (`lake/gold/`) and its run record in
 ```
 lake/
 ├── bronze/
-│   ├── postgres/<table>/ingest_date=YYYY-MM-DD/data.parquet
+│   ├── postgres/<table>/ingest_date=YYYY-MM-DD/run_id=<run_id>/data.parquet   write-once, one per run
 │   └── learning_activity/year=YYYY/month=MM/day=DD/events-000.jsonl
 ├── silver/
 │   ├── <table>/data.parquet
@@ -131,14 +131,23 @@ lake/
 
 - **PostgreSQL tables** are snapshotted in full to Parquet with their source
   types. Each row also gets `_source`, `_ingested_at` and `_run_id` columns.
-  Every snapshot is checked against `SELECT count(*)`. A rerun on the same
-  `RUN_DATE` overwrites that date's snapshot, so there are never duplicates.
-  A different date writes a new snapshot alongside it.
+  Every snapshot is checked against `SELECT count(*)`. Each run writes its
+  own snapshot folder (`run_id=<run_id>`) and Silver reads only that one, so
+  reruns never duplicate and earlier snapshots are never touched.
 - **Learning events** are copied byte-for-byte, keeping the source
-  `year=/month=/day=` partitions. A file already present with the same size is
-  skipped, so reruns only copy new files. Sizes are checked after every copy.
+  `year=/month=/day=` partitions. Only files not yet in Bronze are copied, so
+  reruns only copy new files. Sizes are checked after every copy.
   Malformed lines are *not* filtered here; that happens in Silver, so Bronze
   stays an exact raw copy.
+- **Bronze is write-once (immutable).** Nothing in Bronze is ever replaced or
+  deleted by the job. A table snapshot that already exists raises
+  `FileExistsError`. If a source event file changes after it was landed, the
+  original is kept, the job logs `event=bronze.events.source_changed` (with
+  both sizes) as a warning and counts it in `files_changed_at_source` in the
+  run record. A source file shouldn't change after it was written, so a person
+  decides what to do; the job doesn't silently replace raw data. A rerun adds
+  a small table snapshot (about 0.2 MB at today's volume), and nothing cleans up
+  old snapshots yet.
 - **Bronze contract:** each source table must still have every column its
   Silver model needs (`check_columns`). If one disappears, the job stops at
   ingestion with `SchemaDriftError`. Extra columns are landed and logged.
@@ -462,7 +471,7 @@ PostgreSQL tables pass every `schema.sql` rule and every extra contract rule.
 .venv/bin/python -m pytest -q tests --cov=job --cov-report=term-missing
 ```
 
-203 tests, 98% line coverage of `job.py`, and every per-area coverage goal in
+208 tests, 98% line coverage of `job.py`, and every per-area coverage goal in
 the guide met. Commands, results and conclusions: **[TESTING.md](TESTING.md)**.
 
 | File | Covers |
@@ -473,6 +482,7 @@ the guide met. Commands, results and conclusions: **[TESTING.md](TESTING.md)**.
 | `test_silver_events.py` | every event rule, including the date repair and its guardrail |
 | `test_silver_tables.py` | every contract rule type, cascading foreign keys, schema drift, soft flags |
 | `test_config.py` | local defaults, required cloud variables, no password in logs |
+| `test_bronze_immutable.py` | Bronze is write-once: an existing snapshot is never replaced (and the error isn't retried), each run gets its own table snapshot, a changed source file leaves the landed file untouched and is counted, new files are still landed |
 | `test_resilience.py` | the real job under injected failures: dropped database connections, a failed write in each layer, permanent failure, failed Gold leaving previous Gold intact |
 | `test_retry.py` | backoff timing, giving up after max attempts, no retry on non-transient errors |
 | `test_cloud_mode.py` | cloud mode end to end on S3 (moto, no AWS): `IS_LOCAL=false`, SSL to PostgreSQL, an empty database the job loads from S3, Gold on S3 equal to local Gold, second run changes nothing, incomplete source schema refused |
@@ -510,8 +520,11 @@ the guide met. Commands, results and conclusions: **[TESTING.md](TESTING.md)**.
 - **No alerting.** Failures show up in the logs (`level=ERROR`), the run
   manifest (`status=failed`) and the Kubernetes Job status, but nobody is
   notified.
-- **No S3 versioning.** Silver and Gold are rebuilt in place. A bad run can't
-  overwrite Gold (it is validated first), but older Gold versions are not kept.
+- **No S3 versioning.** Bronze is write-once in the job's code, but S3 itself
+  doesn't enforce it (no versioning or Object Lock), so someone with bucket
+  access could still delete raw files. Silver and Gold are rebuilt in place. A
+  bad run can't overwrite Gold (it is validated first), but older Gold versions
+  are not kept.
 - **Memory caps the volume** at about 20x today's data within the 2 GiB EKS
   limit (see [Performance](#performance)).
 - **SLA targets are assumptions.** The brief sets none.

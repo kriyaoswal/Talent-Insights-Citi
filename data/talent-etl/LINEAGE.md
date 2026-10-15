@@ -5,7 +5,7 @@ Where every column comes from and what happens to it on the way: **renamed**,
 [job.py](job.py). Storage paths are in the [README](README.md#lake-layout).
 
 ```
-PostgreSQL table ──► bronze/postgres/<table>/ingest_date=…/   ──► silver/<table>/             ──┐
+PostgreSQL table ──► bronze/postgres/<table>/ingest_date=…/run_id=…/ ──► silver/<table>/             ──┐
                      (as-is + 3 metadata columns)                (typed, validated, flagged)    ├─► gold/<table>/
 Event JSONL file ──► bronze/learning_activity/year=…/…         ──► silver/learning_activity/   ──┘  (11 tables, Q1–Q7)
                      (byte-for-byte copy)                        (parsed, cleaned, repaired)
@@ -41,13 +41,16 @@ metadata columns are added:
 | `_run_id` | job | the run's ID, matching its run record in `_runs/` |
 
 Checks: the row count must equal `SELECT count(*)`, and every column the Silver
-model needs must be present (`check_columns`).
+model needs must be present (`check_columns`). Each run writes its own
+write-once snapshot (`run_id=<run_id>/`); Silver reads that run's snapshot only.
 
 ### Learning events (`ingest_events_to_bronze`)
 
 Files are copied **byte-for-byte** from `learning_activity/year=YYYY/month=MM/day=DD/*.jsonl`
 to the same path under `bronze/learning_activity/`. Nothing is parsed or
-renamed. Each copy's size is checked against the source.
+renamed. Each copy's size is checked against the source. A file already in
+Bronze is never replaced, even if its source changes later (logged as
+`bronze.events.source_changed`).
 
 ## 2. Bronze → Silver
 

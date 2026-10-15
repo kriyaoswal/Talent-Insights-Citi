@@ -181,7 +181,7 @@ def peak_rss_mb() -> float | None:
 
 
 # OSError subclasses that retrying cannot fix (missing file, access denied): fail at once.
-NON_TRANSIENT_ERRORS = (FileNotFoundError, PermissionError, IsADirectoryError, NotADirectoryError)
+NON_TRANSIENT_ERRORS = (FileNotFoundError, FileExistsError, PermissionError, IsADirectoryError, NotADirectoryError)
 
 
 def with_retry(fn: Callable[[], T], what: str, attempts: int = 4, base_delay_s: float = 1.0) -> T:
@@ -220,9 +220,17 @@ def lake_path(cfg: Config, *parts: str) -> str:
 # so all layers get the same resilience on S3, not just Bronze.
 
 
-def write_parquet(df: pd.DataFrame, uri: str) -> None:
-    """Write ``df`` to ``uri``, overwriting any existing file (idempotent reruns)."""
+def write_parquet(df: pd.DataFrame, uri: str, overwrite: bool = True) -> None:
+    """Write ``df`` to ``uri``.
+
+    Silver and Gold overwrite (idempotent reruns). Bronze passes
+    ``overwrite=False``: an existing file raises ``FileExistsError`` instead of
+    being replaced. The check runs once, before the retried write, so a retry
+    after a write whose response was lost doesn't trip over its own file.
+    """
     fs, path = fsspec.core.url_to_fs(uri)
+    if not overwrite and with_retry(lambda: fs.exists(path), what=f"check {uri}"):
+        raise FileExistsError(f"{uri} already exists and is write-once")
 
     def write() -> None:
         fs.makedirs(path.rsplit("/", 1)[0], exist_ok=True)
@@ -342,11 +350,17 @@ def seed_source_database(cfg: Config) -> StepMetrics:
     return m
 
 
-def ingest_postgres_to_bronze(cfg: Config, run_id: str, ingested_at: datetime) -> StepMetrics:
-    """Snapshot every source table to ``bronze/postgres/<table>/ingest_date=<RUN_DATE>/``.
+def bronze_table_path(cfg: Config, table: str, run_id: str) -> str:
+    """One run's write-once snapshot of a source table."""
+    return lake_path(cfg, "bronze", "postgres", table, f"ingest_date={cfg.run_date}", f"run_id={run_id}", "data.parquet")
 
-    Each run date gets its own snapshot directory; rerunning the same date
-    overwrites that snapshot instead of appending, so reruns never duplicate.
+
+def ingest_postgres_to_bronze(cfg: Config, run_id: str, ingested_at: datetime) -> StepMetrics:
+    """Snapshot every source table to ``bronze/postgres/<table>/ingest_date=<RUN_DATE>/run_id=<run_id>/``.
+
+    Bronze is write-once: every run lands its own snapshot and never replaces
+    an earlier one, so each run's raw input stays exactly as it was read.
+    Silver reads only this run's snapshot, so reruns still never duplicate.
     Bronze contract: the source must still have every column its Silver model
     needs (``check_columns``), so schema drift stops the job at ingestion.
     """
@@ -364,8 +378,8 @@ def ingest_postgres_to_bronze(cfg: Config, run_id: str, ingested_at: datetime) -
             df["_source"] = f"postgres://{cfg.pg_host}/{cfg.pg_name}/{table}"
             df["_ingested_at"] = ingested_at
             df["_run_id"] = run_id
-            target = lake_path(cfg, "bronze", "postgres", table, f"ingest_date={cfg.run_date}", "data.parquet")
-            write_parquet(df, target)
+            target = bronze_table_path(cfg, table, run_id)
+            write_parquet(df, target, overwrite=False)
 
             m.records_read += source_count
             m.records_written += len(df)
@@ -377,10 +391,13 @@ def ingest_postgres_to_bronze(cfg: Config, run_id: str, ingested_at: datetime) -
 def ingest_events_to_bronze(cfg: Config) -> StepMetrics:
     """Copy raw learning-activity JSONL files byte-for-byte into Bronze.
 
-    The source ``year=/month=/day=`` partition layout is preserved. Files
-    already present with the same size are skipped, which makes the step
-    incremental and safe to rerun. Parsing (and quarantining malformed lines)
-    is deliberately left to Silver so Bronze stays an exact raw copy.
+    The source ``year=/month=/day=`` partition layout is preserved. Bronze is
+    write-once: only files not yet landed are copied, so the step is
+    incremental and safe to rerun. A landed file is never replaced: if its
+    source has since changed size, the original is kept and the change is
+    logged and counted (``files_changed_at_source``) for someone to review.
+    Parsing (and quarantining malformed lines) is deliberately left to Silver
+    so Bronze stays an exact raw copy.
     """
     m = StepMetrics(step="bronze.learning_activity")
     src_fs, src_root = fsspec.core.url_to_fs(cfg.events_source_uri)
@@ -399,7 +416,7 @@ def ingest_events_to_bronze(cfg: Config) -> StepMetrics:
         raise RuntimeError(f"No .jsonl files found under {cfg.events_source_uri}")
     dst_sizes = list_sizes(dst_fs, dst_root)
 
-    copied = skipped = bad_layout = 0
+    copied = skipped = changed = bad_layout = 0
     expected: dict[str, int] = {}
     for src in files:
         rel = src[len(src_root):].lstrip("/")
@@ -408,10 +425,21 @@ def ingest_events_to_bronze(cfg: Config) -> StepMetrics:
             log_event(logging.WARNING, "bronze.events.bad_partition", file=rel)
             continue
         dst = f"{dst_root}/{rel}"
-        expected[dst] = src_sizes[src]
-        if dst_sizes.get(dst) == src_sizes[src]:
-            skipped += 1
+        if dst in dst_sizes:
+            if dst_sizes[dst] == src_sizes[src]:
+                skipped += 1
+            else:
+                changed += 1
+                log_event(
+                    logging.WARNING,
+                    "bronze.events.source_changed",
+                    file=rel,
+                    landed_bytes=dst_sizes[dst],
+                    source_bytes=src_sizes[src],
+                    action="kept landed file (Bronze is write-once)",
+                )
             continue
+        expected[dst] = src_sizes[src]
 
         def copy() -> None:
             dst_fs.makedirs(dst.rsplit("/", 1)[0], exist_ok=True)
@@ -429,9 +457,20 @@ def ingest_events_to_bronze(cfg: Config) -> StepMetrics:
     m.records_read = len(files)
     m.records_written = copied
     m.records_quarantined = bad_layout
-    m.details = {"files_found": len(files), "files_copied": copied, "files_unchanged": skipped}
+    m.details = {
+        "files_found": len(files),
+        "files_copied": copied,
+        "files_unchanged": skipped,
+        "files_changed_at_source": changed,
+    }
     log_event(
-        logging.INFO, "bronze.events", files_found=len(files), copied=copied, unchanged=skipped, bad_layout=bad_layout
+        logging.INFO,
+        "bronze.events",
+        files_found=len(files),
+        copied=copied,
+        unchanged=skipped,
+        changed_at_source=changed,
+        bad_layout=bad_layout,
     )
     return m
 
@@ -819,7 +858,7 @@ def add_quality_flags(table: str, df: pd.DataFrame, employees: pd.DataFrame) -> 
 
 
 def transform_tables_to_silver(cfg: Config, run_id: str) -> StepMetrics:
-    """Validate each Bronze table snapshot for ``RUN_DATE`` into Silver.
+    """Validate this run's Bronze table snapshots into Silver.
 
     Tables are processed parents-first so foreign keys are checked against the
     *valid* parent rows; a rejected team therefore also rejects its employees.
@@ -830,9 +869,7 @@ def transform_tables_to_silver(cfg: Config, run_id: str) -> StepMetrics:
     silver: dict[str, pd.DataFrame] = {}
     for table in SOURCE_TABLES:
         contract = TABLE_CONTRACTS[table]
-        bronze = read_parquet(
-            lake_path(cfg, "bronze", "postgres", table, f"ingest_date={cfg.run_date}", "data.parquet")
-        )
+        bronze = read_parquet(bronze_table_path(cfg, table, run_id))
         valid, rejected = validate_table(bronze, contract, parent_keys, cfg.run_date)
         if valid.empty:
             raise RuntimeError(f"silver.{table}: zero valid rows out of {len(bronze)}; halting")

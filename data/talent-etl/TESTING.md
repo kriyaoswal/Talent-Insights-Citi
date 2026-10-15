@@ -10,7 +10,7 @@ the deployed job on AWS (EKS, Aurora PostgreSQL, S3 in `ap-south-1`).
 
 | Area | Result |
 |---|---|
-| Automated tests | **203 passed, 0 failed, 0 skipped** (`pytest`, about 2 minutes) |
+| Automated tests | **208 passed, 0 failed, 0 skipped** (`pytest`, about 2 minutes) |
 | Line coverage of `job.py` | **98%**; every coverage goal in the guide met (table below) |
 | Functional tests 1–5 | all automated and passing |
 | Performance tests 1–5 | all run; **SLA met**, time linear up to 20x, answers exact at every scale |
@@ -41,6 +41,7 @@ themselves (with the reason) when those are unavailable. S3 tests use
 | 3 | Aggregation validation | `test_gold.py` (65) | every Gold definition on a hand-built dataset with known answers; the 7 headline answers on the real data; the "rating thirds" split matches pandas `qcut`; **each of the 18 definition guards rejects a deliberately corrupted row and names the rule** | ✅ |
 | 4 | Data quality validation | `test_pipeline_integration.py` | exact quarantine counts and reasons (13 `malformed_json`, 76 `null_employee_id`), 152 duplicates dropped, 53 dates repaired, 666 + 234 rows flagged; line accounting `read = written + quarantined + duplicates` | ✅ |
 | 5 | Idempotency validation | `test_pipeline_integration.py`, `test_cloud_mode.py` | the job run **twice**, locally and on S3: Silver and Gold identical, no duplicates, 0 event files re-copied, source database never overwritten | ✅ |
+| – | Bronze immutability (guide's Bronze checklist) | `test_bronze_immutable.py` (5), `test_pipeline_integration.py` | after a rerun, **every Bronze file from the first run is byte-for-byte unchanged** and the rerun added only its own 7 table snapshots; an existing snapshot can't be replaced; a source file changed after landing leaves the landed file untouched and is counted (`files_changed_at_source`) | ✅ |
 
 **Key numbers verified on every run** (end-to-end test):
 
@@ -77,12 +78,12 @@ Measured per area by mapping each function of `job.py` to the guide's categories
 
 | Guide's goal | Target | Statements | Coverage | Result |
 |---|---|---|---|---|
-| Core transformation functions | 80%+ | 325 | 95.1% | ✅ |
+| Core transformation functions | 80%+ | 330 | 95.2% | ✅ |
 | Schema and validation rules | 90%+ | 173 | 99.4% | ✅ |
-| Error-handling and retry paths | 85%+ | 100 | 96.0% | ✅ |
+| Error-handling and retry paths | 85%+ | 102 | 96.1% | ✅ |
 | Critical business metric calculations | 95%+ | 342 | 100.0% | ✅ |
 | End-to-end smoke test, at least one flow | 100% | – | 2 flows: local, and cloud mode on S3 | ✅ |
-| Whole file | – | 1,159 | 98% | – |
+| Whole file | – | 1,166 | 98% | – |
 
 ## Cloud readiness (beyond the guide's list)
 
@@ -102,7 +103,7 @@ are from the run records in `lake/_runs/run_date=2026-10-15/`.
 | Step | First run `3f7327b5e4ab` (empty Aurora, empty lake) | Rerun `68f44d213e76` (same inputs) |
 |---|---|---|
 | `source.seed` | Aurora schema created, **12,173 rows** loaded from S3 (1.6 s) | data already present, **0 rows** loaded (0.04 s) |
-| `bronze.postgres` | 12,173 rows, matches `count(*)` (0.4 s) | 12,173 rows, same date's snapshot overwritten (0.8 s) |
+| `bronze.postgres` | 12,173 rows, matches `count(*)` (0.4 s) | 12,173 rows, same date's snapshot overwritten (0.8 s; before Bronze became write-once, see below) |
 | `bronze.learning_activity` | **783 files copied** (63.3 s) | 783 unchanged, **0 copied** (0.3 s) |
 | `silver.tables` | 12,173 → 12,173, 0 quarantined (1.2 s) | same (1.1 s) |
 | `silver.learning_activity` | 29,868 lines → 29,627 + 89 quarantined + 152 duplicates; 53 dates repaired, 39 `notes` renamed (5.6 s) | identical counts (6.4 s) |
@@ -157,6 +158,9 @@ warnings, 14 charts.
 - **Simulated failures**: retry behaviour was proven by injecting errors in
   code. On AWS we also saw it handle a real network fault (the Aurora timeouts
   above), but not S3 throttling.
+- **Write-once Bronze is not deployed to AWS yet.** It was added after the AWS
+  runs above and tested locally and on moto S3 (all 208 tests). It takes
+  effect on AWS at the next deploy.
 - **The 30 s Pod Identity wait was not exercised on AWS**: it only runs when
   the association is first created, which had already happened.
 - **Scaled data is replicated sample data**: same distributions and error
@@ -170,7 +174,7 @@ warnings, 14 charts.
 ## Conclusion
 
 The pipeline meets every functional and performance expectation in the guide,
-with 203 automated tests, 98% coverage and each per-area coverage goal met. It
+with 208 automated tests, 98% coverage and each per-area coverage goal met. It
 produces the same answers locally, in cloud mode on S3, inside the EKS job
 image, and **deployed on AWS**, and it is safe to rerun. Two things to watch:
 memory (about 20x today's volume within the 2 GiB EKS limit) and the first full

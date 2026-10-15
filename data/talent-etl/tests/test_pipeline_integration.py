@@ -46,6 +46,11 @@ def lake_snapshot(lake: Path) -> dict[str, pd.DataFrame]:
     }
 
 
+def bronze_files(lake: Path) -> dict[str, bytes]:
+    """Every Bronze file's bytes, keyed by path."""
+    return {str(p.relative_to(lake)): p.read_bytes() for p in (lake / "bronze").rglob("*") if p.is_file()}
+
+
 def step(manifest: dict, name: str) -> dict:
     return next(s for s in manifest["steps"] if s["step"] == name)
 
@@ -53,6 +58,7 @@ def step(manifest: dict, name: str) -> dict:
 def test_pipeline_end_to_end_and_idempotent(lake, monkeypatch):
     first = run_job(lake, monkeypatch)
     snapshot = lake_snapshot(lake)
+    first_bronze = bronze_files(lake)
     second = run_job(lake, monkeypatch)
 
     # --- Bronze: row counts match the source -----------------------------------
@@ -67,6 +73,12 @@ def test_pipeline_end_to_end_and_idempotent(lake, monkeypatch):
     }
     assert step(first, "bronze.learning_activity")["details"]["files_found"] == 783
     assert step(second, "bronze.learning_activity")["details"]["files_copied"] == 0  # incremental
+
+    # --- Bronze is write-once: the rerun added its own snapshots, changed nothing --
+    rerun_bronze = bronze_files(lake)
+    assert all(rerun_bronze[path] == data for path, data in first_bronze.items())
+    added = sorted(set(rerun_bronze) - set(first_bronze))
+    assert len(added) == 7 and all(f"/run_id={second['run_id']}/" in p for p in added)
 
     # --- Silver tables: clean source, soft flags only ----------------------------
     tables = step(first, "silver.tables")
