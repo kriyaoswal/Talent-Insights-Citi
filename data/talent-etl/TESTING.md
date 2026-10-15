@@ -3,7 +3,8 @@
 How the pipeline was tested against the **Testing Expectations** in
 [docs/data-engineer.md](../../docs/data-engineer.md): the commands, what they
 produced, and what we conclude. Results are from 2026-10-15 on the workshop VM
-(Linux x86_64, 2 CPUs, Python 3.13, local PostgreSQL 18, LocalStack).
+(Linux x86_64, 2 CPUs, Python 3.13, local PostgreSQL 18, LocalStack), and from
+the deployed job on AWS (EKS, Aurora PostgreSQL, S3 in `ap-south-1`).
 
 ## Summary
 
@@ -14,6 +15,7 @@ produced, and what we conclude. Results are from 2026-10-15 on the workshop VM
 | Functional tests 1–5 | all automated and passing |
 | Performance tests 1–5 | all run; **SLA met**, time linear up to 20x, answers exact at every scale |
 | Cloud readiness | job run inside the **actual EKS image** in cloud mode (S3 + empty database): Gold identical to local |
+| **Real AWS run** | deployed job on EKS succeeded twice: **15/15 Gold checks**, all 11 Gold tables in S3 **identical to local**, rerun copied 0 files (details below) |
 
 ## How to run
 
@@ -90,6 +92,49 @@ Measured per area by mapping each function of `job.py` to the guide's categories
 | Cloud mode in CI | `test_cloud_mode.py`: moto S3, SSL to PostgreSQL, empty database seeded by the job | ✅ 4 tests, S3 Gold equal to local Gold |
 | Infrastructure | `terraform validate`; Helm chart renders **byte-for-byte unchanged** for jobs without settings and with the Secret + env for ours; `helm lint`; data-lake bucket + source upload applied to LocalStack (783 + 8 files) | ✅ |
 
+## Real AWS run
+
+Deployed with `./bin/deploy-backend.sh` (`TF_VAR_aws_eks_enabled=true`), as in
+the guide. The job runs as a Kubernetes Job on EKS, reads Aurora over SSL, and
+reads and writes `s3://coding-workshop-datalake-<participant>/`. Numbers below
+are from the run records in `lake/_runs/run_date=2026-10-15/`.
+
+| Step | First run `3f7327b5e4ab` (empty Aurora, empty lake) | Rerun `68f44d213e76` (same inputs) |
+|---|---|---|
+| `source.seed` | Aurora schema created, **12,173 rows** loaded from S3 (1.6 s) | data already present, **0 rows** loaded (0.04 s) |
+| `bronze.postgres` | 12,173 rows, matches `count(*)` (0.4 s) | 12,173 rows, same date's snapshot overwritten (0.8 s) |
+| `bronze.learning_activity` | **783 files copied** (63.3 s) | 783 unchanged, **0 copied** (0.3 s) |
+| `silver.tables` | 12,173 → 12,173, 0 quarantined (1.2 s) | same (1.1 s) |
+| `silver.learning_activity` | 29,868 lines → 29,627 + 89 quarantined + 152 duplicates; 53 dates repaired, 39 `notes` renamed (5.6 s) | identical counts (6.4 s) |
+| `gold` | 11 tables, **15/15 checks PASS** (2.9 s) | **15/15 PASS** (3.4 s) |
+| **Whole job** | **75.0 s**, peak memory 334 MB, exit 0 | **12.0 s**, peak memory 336 MB, exit 0 |
+
+**Gold on S3 equals Gold built locally.** All 11 tables were read back from
+S3 and compared with the local run using `pandas.testing.assert_frame_equal`:
+identical (e.g. 2,000 attrition rows, 357 promotion candidates, 27 teams). The
+notebook also ran against S3 Gold with `LAKE_ROOT=s3://…/lake`: 0 errors, 0
+warnings, 14 charts.
+
+**What this adds to the earlier evidence:**
+
+| Guide's test | Evidence on AWS |
+|---|---|
+| Source ingestion | every Bronze row count equals Aurora's `count(*)`; 783 event files copied with sizes checked |
+| Idempotency | the rerun loaded 0 rows into Aurora, copied 0 files, and produced the same Silver counts and Gold |
+| Resource efficiency | 336 MB peak, well within the job's 1 GiB request and 2 GiB limit |
+| External dependencies | in the two failed runs below, a **real** network fault: the database connection was retried after 1 s, 2 s and 4 s, then the job gave up after 4 attempts (`retry.exhausted`) and ended with `status=failed` and exit code 1, as designed. The second run also wrote its run record; the first could not, because S3 access was the next problem |
+| SLA (assumed ≤ 60 s at 1x) | **rerun: PASS (12 s). First run: missed (75 s)** because it copies all 783 event files to S3 one at a time. Later runs copy only new files, so daily runs meet the target |
+
+**Problems found by deploying, and fixed:**
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Runs `5c6ef5706f98`, `4d1be3727ace`: `ConnectionTimeout` to Aurora after 47 s of retries | Aurora's security group did not allow the EKS pods | Aurora also joins the EKS cluster security group (`infra/rds.tf`) |
+| Job could not reach S3: `NoCredentialsError` | pods have no AWS role, and the node's metadata hop limit blocks the node role | EKS Pod Identity: the job's own role, allowed only on the data-lake bucket (`infra/eks.tf`) |
+| First pod after creating Pod Identity: `NoCredentialsError` at 1.5 s; Kubernetes' retry succeeded | the pod started 2 s after the association, before credentials were being injected | wait 30 s after a new association before starting the job (`null_resource.pod_identity_wait`) |
+| Deploy planned to remove a tag from Aurora | the account's managed-services monitoring adds the tag `ams:rt:ams-monitoring-policy` | Terraform ignores that tag (`lifecycle.ignore_changes`) |
+| Notebook on S3: `No AWSAccessKey was presented` | the S3 library ignored `AWS_REGION` and sent requests to `us-east-1` | also set `AWS_DEFAULT_REGION=ap-south-1` (README) |
+
 ## Defects found by testing (and fixed)
 
 | Found by | Defect | Fix |
@@ -104,10 +149,16 @@ Measured per area by mapping each function of `job.py` to the guide's categories
 
 ## Known limitations
 
-- **No run in real AWS yet**: EKS, Aurora and IAM were rehearsed with the EKS
-  image, LocalStack and moto, but not on AWS (credentials expired at the time).
-- **Simulated failures**: retry behaviour was proven by injecting errors in code,
-  not with real network faults.
+- **First full load on AWS takes 75 s**, above the assumed 60 s target. It is
+  a one-time cost (copying 783 small files to S3 one by one); copying them in
+  parallel would shorten it.
+- **Failures are only logged**: there is no alerting. A failed run is visible
+  in the logs, the run record (`status=failed`) and the Kubernetes Job status.
+- **Simulated failures**: retry behaviour was proven by injecting errors in
+  code. On AWS we also saw it handle a real network fault (the Aurora timeouts
+  above), but not S3 throttling.
+- **The 30 s Pod Identity wait was not exercised on AWS**: it only runs when
+  the association is first created, which had already happened.
 - **Scaled data is replicated sample data**: same distributions and error
   rates; skew and new kinds of bad data are not covered.
 - **Local disk for performance**: S3 latency would add time to Bronze and to
@@ -120,6 +171,7 @@ Measured per area by mapping each function of `job.py` to the guide's categories
 
 The pipeline meets every functional and performance expectation in the guide,
 with 203 automated tests, 98% coverage and each per-area coverage goal met. It
-produces the same answers locally, in cloud mode on S3, and inside the EKS job
-image, and it is safe to rerun. The capacity limit to watch is memory (about
-20x today's volume within the 2 GiB EKS limit).
+produces the same answers locally, in cloud mode on S3, inside the EKS job
+image, and **deployed on AWS**, and it is safe to rerun. Two things to watch:
+memory (about 20x today's volume within the 2 GiB EKS limit) and the first full
+load on AWS (75 s against an assumed 60 s target; reruns take 12 s).

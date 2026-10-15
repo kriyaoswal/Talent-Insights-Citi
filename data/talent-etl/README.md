@@ -88,7 +88,29 @@ The deploy creates the data-lake bucket
 needs. The job then loads Aurora, writes `lake/bronze|silver|gold`, and records
 a run manifest under `lake/_runs/`. The first deploy takes about 15–20 minutes
 because it creates the EKS cluster. Read Gold from the notebook with
-`LAKE_ROOT=s3://coding-workshop-datalake-<participant>/lake`.
+`LAKE_ROOT=s3://coding-workshop-datalake-<participant>/lake` (see
+[Notebook](#notebook)).
+
+**Deployed and verified on AWS** (details in [TESTING.md](TESTING.md#real-aws-run)):
+the first run took 75 s, loaded the empty Aurora and passed all 15 Gold checks;
+a rerun took 12 s and copied nothing. The Gold in S3 is identical to the local
+Gold.
+
+What the deploy sets up for the job, beyond the workshop defaults (`infra/`):
+
+| Piece | Why |
+|---|---|
+| Data-lake bucket + source upload (`datalake.tf`) | the job's input and output; sources are uploaded only when they change |
+| Job settings + Kubernetes Secret (`eks.tf`, Helm chart) | every variable in [Configuration](#configuration); the password never appears in a command line |
+| **EKS Pod Identity** (`eks.tf`) | the job's own AWS role, allowed only on the data-lake bucket. Pods can't use the node's role, and the job doesn't need it |
+| 30 s wait after a new Pod Identity association | a pod started sooner gets no credentials |
+| Helm release reinstalled on every deploy | the Job is recreated, so every deploy runs the pipeline |
+| Aurora in the EKS cluster security group (`rds.tf`) | lets the job's pods reach Aurora on port 5432 |
+| Aurora ignores the `ams:rt:ams-monitoring-policy` tag (`rds.tf`) | the account's monitoring adds it; without this every deploy tries to remove it |
+
+The job is a batch run, not a service: Kubernetes deletes the finished Job
+after 100 s. Its results stay in S3 (`lake/gold/`) and its run record in
+`lake/_runs/`.
 
 ## Lake layout
 
@@ -373,8 +395,17 @@ setup:
     --ExecutePreprocessor.kernel_name=talent-etl notebooks/talent_insights.ipynb
 ```
 
-Set `LAKE_ROOT=s3://<bucket>/<prefix>` before starting Jupyter to read Gold
-from S3 instead of `lake/`.
+**Read Gold from S3** instead of `lake/`: set `LAKE_ROOT` and the region before
+starting Jupyter, from the repository root:
+
+```sh
+set -a && source ENVIRONMENT.config && set +a        # AWS credentials
+export AWS_DEFAULT_REGION=ap-south-1 LAKE_ROOT=s3://coding-workshop-datalake-<participant>/lake
+cd data/talent-etl/notebooks && ../.venv/bin/jupyter lab
+```
+
+`AWS_DEFAULT_REGION` is needed: the S3 library ignores `AWS_REGION`, sends the
+request to `us-east-1` and fails with `No AWSAccessKey was presented`.
 
 ## Performance
 
@@ -457,6 +488,11 @@ the guide met. Commands, results and conclusions: **[TESTING.md](TESTING.md)**.
   and final status.
 - Exit code `0` means success and `1` means failure. A failed run still writes
   its manifest.
+- **Lineage:** [LINEAGE.md](LINEAGE.md) maps every column from source to Gold
+  and marks where it is renamed, cast, derived or aggregated. At run time,
+  Bronze rows carry `_source` / `_run_id`, Silver events carry
+  `source_file` / `source_line`, and the run manifest records every step's
+  counts.
 
 ## Known limitations
 
@@ -468,7 +504,36 @@ the guide met. Commands, results and conclusions: **[TESTING.md](TESTING.md)**.
   of numexpr and bottleneck. pip prints a notice that some preinstalled image
   packages (numba, scikit-learn, matplotlib) expect NumPy 1; the job doesn't use
   them, and each run is its own container.
-- **Not yet run in real AWS.** EKS was rehearsed with the actual job image,
-  S3 with LocalStack and moto, Aurora with a local PostgreSQL over SSL.
+- **The first full load on AWS takes 75 s**, above the assumed 60 s target:
+  it copies 783 small event files to S3 one at a time. Reruns copy only new
+  files and take 12 s. Copying in parallel would fix the first load.
+- **No alerting.** Failures show up in the logs (`level=ERROR`), the run
+  manifest (`status=failed`) and the Kubernetes Job status, but nobody is
+  notified.
+- **No S3 versioning.** Silver and Gold are rebuilt in place. A bad run can't
+  overwrite Gold (it is validated first), but older Gold versions are not kept.
+- **Memory caps the volume** at about 20x today's data within the 2 GiB EKS
+  limit (see [Performance](#performance)).
+- **SLA targets are assumptions.** The brief sets none.
 - Retries also cover authentication errors. A wrong password costs about 7s
   before the job fails.
+
+## Trade-offs and assumptions
+
+- **Pandas, not Spark.** At 42,000 records a run finishes in seconds on one
+  core, and the job runs well past 10x today's volume. Spark would add startup
+  time and complexity for no gain at this size.
+- **One file (`job.py`).** The deploy ships only `job.py` and
+  `requirements.txt`, so shared helpers live in clearly separated sections of
+  that file instead of modules.
+- **Full rebuild of Silver and Gold** on every run instead of incremental
+  merges: simpler, and idempotent by construction. Bronze is incremental for
+  event files.
+- **Flag, don't drop, suspicious rows** (reviews and assessments dated before
+  the hire): quarantining them would remove 17% of reviews. Gold decides per
+  metric.
+- **Repair invalid event dates** only when two independent signals agree (the
+  file's day and the event-ID block); otherwise quarantine.
+- **Business definitions are our choices** (key competency ≥ 4, critical gap,
+  tiers, the performance signal). They are constants at the top of the Gold
+  section, so they are easy to change.
