@@ -1,0 +1,213 @@
+{
+  "job": "talent-etl",
+  "run_id": "3f7327b5e4ab",
+  "run_date": "2026-10-15",
+  "status": "succeeded",
+  "error": null,
+  "started_at": "2026-10-15 08:48:18.592353+00:00",
+  "ended_at": "2026-10-15 08:49:33.574107+00:00",
+  "duration_s": 74.982,
+  "cpu_s": 11.9,
+  "peak_rss_mb": 334.3,
+  "steps": [
+    {
+      "step": "source.seed",
+      "status": "succeeded",
+      "records_read": 0,
+      "records_written": 12173,
+      "records_quarantined": 0,
+      "details": {
+        "schema": "created",
+        "teams": 100,
+        "competencies": 40,
+        "employees": 2000,
+        "projects": 33,
+        "performance_reviews": 4000,
+        "competency_assessments": 4000,
+        "talent_review": 2000
+      },
+      "duration_s": 1.554,
+      "cpu_s": 0.468,
+      "peak_rss_mb": 184.0
+    },
+    {
+      "step": "bronze.postgres",
+      "status": "succeeded",
+      "records_read": 12173,
+      "records_written": 12173,
+      "records_quarantined": 0,
+      "details": {
+        "teams": 100,
+        "competencies": 40,
+        "employees": 2000,
+        "projects": 33,
+        "performance_reviews": 4000,
+        "competency_assessments": 4000,
+        "talent_review": 2000
+      },
+      "duration_s": 0.416,
+      "cpu_s": 0.118,
+      "peak_rss_mb": 219.6
+    },
+    {
+      "step": "bronze.learning_activity",
+      "status": "succeeded",
+      "records_read": 783,
+      "records_written": 783,
+      "records_quarantined": 0,
+      "details": {
+        "files_found": 783,
+        "files_copied": 783,
+        "files_unchanged": 0
+      },
+      "duration_s": 63.325,
+      "cpu_s": 5.918,
+      "peak_rss_mb": 221.9
+    },
+    {
+      "step": "silver.tables",
+      "status": "succeeded",
+      "records_read": 12173,
+      "records_written": 12173,
+      "records_quarantined": 0,
+      "details": {
+        "teams": {
+          "read": 100,
+          "written": 100,
+          "quarantined": 0
+        },
+        "competencies": {
+          "read": 40,
+          "written": 40,
+          "quarantined": 0
+        },
+        "employees": {
+          "read": 2000,
+          "written": 2000,
+          "quarantined": 0
+        },
+        "projects": {
+          "read": 33,
+          "written": 33,
+          "quarantined": 0
+        },
+        "performance_reviews": {
+          "read": 4000,
+          "written": 4000,
+          "quarantined": 0,
+          "flag_period_before_hire": 666
+        },
+        "competency_assessments": {
+          "read": 4000,
+          "written": 4000,
+          "quarantined": 0,
+          "flag_assessed_before_hire": 234
+        },
+        "talent_review": {
+          "read": 2000,
+          "written": 2000,
+          "quarantined": 0
+        }
+      },
+      "duration_s": 1.187,
+      "cpu_s": 0.504,
+      "peak_rss_mb": 252.0
+    },
+    {
+      "step": "silver.learning_activity",
+      "status": "succeeded",
+      "records_read": 29868,
+      "records_written": 29627,
+      "records_quarantined": 89,
+      "details": {
+        "files_read": 783,
+        "empty_files": 1,
+        "lines_read": 29868,
+        "duplicates_dropped": 152,
+        "schema_drift_renamed": 39,
+        "event_date_repaired": 53,
+        "lines_quarantined": 89,
+        "rows_written": 29627,
+        "quarantine_reasons": {
+          "malformed_json": 13,
+          "null_employee_id": 76
+        }
+      },
+      "duration_s": 5.617,
+      "cpu_s": 2.865,
+      "peak_rss_mb": 334.3
+    },
+    {
+      "step": "gold",
+      "status": "succeeded",
+      "records_read": 41800,
+      "records_written": 21170,
+      "records_quarantined": 0,
+      "details": {
+        "tables": {
+          "employee_review_history": 4000,
+          "employee_performance_summary": 2000,
+          "employee_skill_gaps": 4000,
+          "promotion_candidates": 357,
+          "employee_learning": 2000,
+          "employee_course_completions": 5118,
+          "attrition_watchlist": 2000,
+          "team_performance": 27,
+          "project_performance": 33,
+          "skill_distribution": 1595,
+          "competency_summary": 40
+        },
+        "reconciliation": {
+          "Q1 review history rows = Silver reviews": "PASS (4000)",
+          "Q1 summary rows = Silver employees": "PASS (2000)",
+          "Q1 summary valid reviews = Silver valid reviews": "PASS (3334)",
+          "Q2 skill gap rows = Silver assessments": "PASS (4000)",
+          "Q3 candidates = Silver High + Ready Now": "PASS (357)",
+          "Q4 learning rows = Silver employees": "PASS (2000)",
+          "Q4 learning events = Silver events": "PASS (29627)",
+          "Q4 completions = distinct Silver completions": "PASS (3429)",
+          "Q4 certifications = distinct Silver certifications": "PASS (1757)",
+          "Q5 watchlist rows = Silver employees": "PASS (2000)",
+          "Q6 team rows = Silver teams with projects": "PASS (27)",
+          "Q6 team projects = Silver projects": "PASS (33)",
+          "Q6 project rows = Silver projects": "PASS (33)",
+          "Q7 distribution assessments = Silver assessments": "PASS (4000)",
+          "Q7 competency assessed = Silver assessments": "PASS (4000)"
+        },
+        "highlights": {
+          "q1_trend": {
+            "improved": 721,
+            "stable": 692,
+            "insufficient_data": 396,
+            "declined": 191
+          },
+          "q2_employees_with_critical_gap": 441,
+          "q2_critical_assessments": 465,
+          "q3_candidates_by_tier": {
+            "A": 148,
+            "B": 90,
+            "C": 119
+          },
+          "q3_retention_priority": 18,
+          "q4_employees_completed_a_course": 1661,
+          "q4_employees_certified": 1154,
+          "q5_risk_tiers": {
+            "Critical": 143,
+            "High": 294,
+            "Watch": 171,
+            "Low": 1392
+          },
+          "q5_critical_high_potential": 42,
+          "q6_on_time_by_rating_band": {
+            "bottom third": 0.444,
+            "middle third": 0.556,
+            "top third": 0.944
+          }
+        }
+      },
+      "duration_s": 2.882,
+      "cpu_s": 1.37,
+      "peak_rss_mb": 334.3
+    }
+  ]
+}

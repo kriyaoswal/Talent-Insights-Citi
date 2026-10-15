@@ -1,0 +1,13 @@
+{
+  "job": "talent-etl",
+  "run_id": "4d1be3727ace",
+  "run_date": "2026-10-15",
+  "status": "failed",
+  "error": "ConnectionTimeout('connection timeout expired')",
+  "started_at": "2026-10-15 08:46:56.567824+00:00",
+  "ended_at": "2026-10-15 08:47:43.585931+00:00",
+  "duration_s": 47.018,
+  "cpu_s": 0.736,
+  "peak_rss_mb": 138.4,
+  "steps": []
+}

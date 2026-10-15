@@ -1,0 +1,9 @@
+# EKS pod log of failed run 4d1be3727ace (Aurora not reachable): structured lines only; database hostname removed
+2026-10-15T08:46:56+0000 level=INFO job=talent-etl event=job.start run_id=4d1be3727ace run_date=2026-10-15 config=Config(is_local=False, pg_host='<aurora-endpoint>', pg_port=5432, pg_name='codingworkshop', pg_user='<user>', lake_root='s3://coding-workshop-datalake-78cdf903/lake', events_source_uri='s3://coding-workshop-datalake-78cdf903/source/learning_activity', run_date=datetime.date(2026, 10, 15), log_level='INFO', seed_source_uri='s3://coding-workshop-datalake-78cdf903/source/postgres_seed')
+2026-10-15T08:47:06+0000 level=WARNING job=talent-etl event=retry what=postgres.connect attempt=1 delay_s=1.0 error=ConnectionTimeout('connection timeout expired')
+2026-10-15T08:47:17+0000 level=WARNING job=talent-etl event=retry what=postgres.connect attempt=2 delay_s=2.0 error=ConnectionTimeout('connection timeout expired')
+2026-10-15T08:47:29+0000 level=WARNING job=talent-etl event=retry what=postgres.connect attempt=3 delay_s=4.0 error=ConnectionTimeout('connection timeout expired')
+2026-10-15T08:47:43+0000 level=ERROR job=talent-etl event=retry.exhausted what=postgres.connect attempts=4 error=ConnectionTimeout('connection timeout expired')
+2026-10-15T08:47:43+0000 level=ERROR job=talent-etl event=job.error error=ConnectionTimeout('connection timeout expired')
+2026-10-15T08:47:43+0000 level=INFO job=aiobotocore.credentials Found credentials from IAM Role: coding-workshop-eks-ap-south-1-78cdf903
+2026-10-15T08:47:44+0000 level=ERROR job=talent-etl event=job.end run_id=4d1be3727ace status=failed duration_s=47.018
