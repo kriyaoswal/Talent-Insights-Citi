@@ -24,7 +24,7 @@ import re
 import sys
 import time
 import uuid
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -268,14 +268,14 @@ def read_bytes(uri: str) -> bytes:
     return with_retry(lambda: fs.cat_file(path), what=f"read {uri}")
 
 
-def write_json(obj: object, uri: str) -> None:
-    """Write ``obj`` as pretty JSON to ``uri``."""
+def write_json(obj: object, uri: str, indent: int | None = 2) -> None:
+    """Write ``obj`` as JSON to ``uri`` (pretty by default; ``indent=None`` for compact)."""
     fs, path = fsspec.core.url_to_fs(uri)
 
     def write() -> None:
         fs.makedirs(path.rsplit("/", 1)[0], exist_ok=True)
         with fs.open(path, "w") as fh:
-            json.dump(obj, fh, indent=2, default=str)
+            json.dump(obj, fh, indent=indent, default=str, separators=None if indent else (",", ":"))
 
     with_retry(write, what=f"write {uri}")
 
@@ -2020,6 +2020,272 @@ def aggregate_to_gold(cfg: Config) -> StepMetrics:
 
 
 # --------------------------------------------------------------------------- #
+# Serving: dashboard data
+# --------------------------------------------------------------------------- #
+#
+# The React dashboard is served by a 128 MB Lambda, too small for pandas. So the
+# pipeline, which already has Gold in memory, writes each dashboard page as a
+# ready-made JSON file next to Gold; the Lambda only hands those files out.
+# Everything here is read from Gold, so the dashboard shows exactly the Gold
+# answers.
+
+TRENDS = ["improved", "stable", "declined", "insufficient_data"]
+PERSON = ["employee_id", "first_name", "last_name", "department", "team_name", "job_level"]
+EMPLOYEE_PARTS = 100  # employee pages are grouped into files by employee_id % 100
+
+
+def records(df: pd.DataFrame) -> list[dict]:
+    """Rows as JSON-safe dicts: dates as ISO strings, missing values as null."""
+    out = df.copy()
+    for col in out.columns:
+        if out[col].dtype == object or pd.api.types.is_datetime64_any_dtype(out[col]):
+            out[col] = out[col].map(lambda v: v.isoformat() if hasattr(v, "isoformat") else v)
+    return json.loads(out.to_json(orient="records"))
+
+
+def _counts(series: pd.Series, order: list) -> list[dict]:
+    vc = series.value_counts()
+    return [{"label": str(k), "value": int(vc.get(k, 0))} for k in order]
+
+
+def _meets_share(comp: pd.DataFrame) -> float:
+    return float((comp["meets_required_share"] * comp["assessed"]).sum() / comp["assessed"].sum())
+
+
+def page_summary(g: dict[str, pd.DataFrame]) -> dict:
+    """Overview: one card per question with its headline answer."""
+    s, gaps, cand = g["employee_performance_summary"], g["employee_skill_gaps"], g["promotion_candidates"]
+    learn, watch, teams, comp = g["employee_learning"], g["attrition_watchlist"], g["team_performance"], g["competency_summary"]
+    trend, tiers, risk = s["trend"].value_counts(), cand["tier"].value_counts(), watch["risk_tier"].value_counts()
+    crit_emp = int(gaps.loc[gaps["is_critical"], "employee_id"].nunique())
+    bands = teams.groupby("rating_band")["on_time_rate"].mean()
+    weakest = comp.sort_values("avg_proficiency").iloc[0]
+    critical_hipo = int(((watch["risk_tier"] == "Critical") & watch["high_potential"]).sum())
+    return {
+        "cards": [
+            {"q": "Q1", "title": "Performance ratings", "value": f"{int(trend.get('improved', 0)):,} improved",
+             "detail": f"{int(trend.get('stable', 0)):,} stable, {int(trend.get('declined', 0)):,} declined, "
+                       f"{int(trend.get('insufficient_data', 0)):,} without a measurable trend"},
+            {"q": "Q2", "title": "Critical skill gaps", "value": f"{crit_emp:,} employees",
+             "detail": f"{crit_emp / len(s):.0%} of employees; {int(gaps['is_critical'].sum()):,} critical assessments"},
+            {"q": "Q3", "title": "Ready for promotion", "value": f"{int(tiers.get('A', 0))} tier A",
+             "detail": f"{len(cand)} high-potential, ready-now candidates; "
+                       f"{int(cand['retention_priority'].sum())} are retention priorities"},
+            {"q": "Q4", "title": "Training completed", "value": f"{int((learn['courses_completed'] > 0).sum()):,} employees",
+             "detail": f"completed at least one course; {int((learn['certifications'] > 0).sum()):,} hold a certification"},
+            {"q": "Q5", "title": "Attrition risk", "value": f"{int(risk.get('Critical', 0))} critical",
+             "detail": f"{int(risk.get('High', 0))} high, {int(risk.get('Watch', 0))} watch; "
+                       f"{critical_hipo} critical are high potential"},
+            {"q": "Q6", "title": "Teams and projects",
+             "value": f"{bands.get('top third', 0):.0%} vs {bands.get('bottom third', 0):.0%}",
+             "detail": "on-time delivery, top-rated vs bottom-rated third of teams"},
+            {"q": "Q7", "title": "Skills distribution", "value": f"{_meets_share(comp):.0%} meet requirement",
+             "detail": f"weakest skill: {weakest['competency_name']} (average level {weakest['avg_proficiency']:.2f})"},
+        ]
+    }  # fmt: skip
+
+
+def page_q1(g: dict[str, pd.DataFrame]) -> dict:
+    s, hist = g["employee_performance_summary"], g["employee_review_history"]
+    valid = hist[~hist["flag_period_before_hire"].astype(bool)]
+    dist = valid.groupby(["review_period", "rating"]).size().unstack(fill_value=0).reindex(columns=range(1, 6), fill_value=0)
+    return {
+        "trend": _counts(s["trend"], TRENDS),
+        "periods": [
+            {"period": p, "avg_rating": round(float(r.mean()), 2), "reviews": int(r.size),
+             "levels": [int(dist.loc[p, lvl]) for lvl in range(1, 6)]}
+            for p, r in valid.groupby("review_period")["rating"]
+        ],
+        "flagged_reviews": int(hist["flag_period_before_hire"].sum()),
+        "employees": records(s[PERSON + ["previous_rating", "latest_period_rating", "rating_change", "trend", "reviews_valid"]]),
+    }  # fmt: skip
+
+
+def page_q2(g: dict[str, pd.DataFrame]) -> dict:
+    gaps, comp = g["employee_skill_gaps"], g["competency_summary"]
+    crit = gaps[gaps["is_critical"]]
+    crit_emp = crit.groupby("department")["employee_id"].nunique()
+    dept = (crit_emp / gaps.groupby("department")["employee_id"].nunique()).fillna(0)
+    worst = comp.sort_values("critical_gap_rate", ascending=False).head(10)
+    return {
+        "employees": int(crit["employee_id"].nunique()),
+        "assessments": int(len(crit)),
+        "total_employees": int(gaps["employee_id"].nunique()),
+        # flagged only because of the key rule: 1 level short on a key skill, never 2+ short anywhere
+        "key_only": int(crit["employee_id"].nunique() - crit.loc[crit["shortfall"] >= CRITICAL_SHORTFALL, "employee_id"].nunique()),
+        "by_competency": [{"label": r.competency_name, "value": float(r.critical_gap_rate)} for r in worst.itertuples()],
+        "by_department": [{"label": k, "value": float(v)} for k, v in dept.sort_values(ascending=False).items()],
+        "rows": records(crit[PERSON + ["competency_name", "category", "required_level", "proficiency_level", "shortfall", "is_key"]]),
+    }  # fmt: skip
+
+
+def page_q3(g: dict[str, pd.DataFrame]) -> dict:
+    c = g["promotion_candidates"].sort_values("rank")
+    return {
+        "candidates": int(len(c)),
+        "tiers": _counts(c["tier"], ["A", "B", "C"]),
+        "retention_priority": int(c["retention_priority"].sum()),
+        "rows": records(c[["rank", *PERSON, "tier", "latest_rating", "trend", "courses_completed", "certifications",
+                           "attrition_risk", "retention_priority", "recommendation"]]),
+    }  # fmt: skip
+
+
+def page_q4(g: dict[str, pd.DataFrame]) -> dict:
+    learn, comp = g["employee_learning"], g["employee_course_completions"]
+    cc = learn["courses_completed"]
+    dept = (
+        learn.groupby("department")
+        .agg(employees=("employee_id", "size"),
+             completed_a_course=("courses_completed", lambda s: (s > 0).mean()),
+             certified=("certifications", lambda s: (s > 0).mean()),
+             courses_per_employee=("courses_completed", "mean"))
+        .sort_values("certified", ascending=False)
+        .reset_index()
+    )  # fmt: skip
+    top = comp[comp["completed"]].groupby("course_name").size().sort_values(ascending=False).head(10)
+    return {
+        "completed_any": int((cc > 0).sum()),
+        "certified_any": int((learn["certifications"] > 0).sum()),
+        "employees": int(len(learn)),
+        "completions": int(comp["completed"].sum()),
+        "certifications": int(comp["certified"].sum()),
+        "courses": int(comp["course_name"].nunique()),
+        "courses_histogram": [{"label": str(k), "value": int(v)} for k, v in cc.value_counts().sort_index().items()],
+        "top_courses": [{"label": k, "value": int(v)} for k, v in top.items()],
+        "departments": records(dept),
+        "rows": records(learn[PERSON + ["courses_completed", "certifications", "quizzes_passed", "avg_quiz_score",
+                                        "last_activity_date"]]),
+    }  # fmt: skip
+
+
+def page_q5(g: dict[str, pd.DataFrame]) -> dict:
+    w = g["attrition_watchlist"]
+    grid = pd.crosstab(w["performance_signal"], w["recorded_attrition_risk"]).reindex(
+        index=[True, False], columns=["High", "Medium", "Low"], fill_value=0
+    )
+    return {
+        "tiers": _counts(w["risk_tier"], list(RISK_TIERS)),
+        "critical_high_potential": int(((w["risk_tier"] == "Critical") & w["high_potential"]).sum()),
+        "reasons": [{"label": k, "value": int(v)} for k, v in w["signal_reason"].value_counts().items()],
+        "grid": {"rows": ["Performance slipping", "No performance warning"], "columns": list(grid.columns),
+                 "values": grid.values.tolist()},
+        "rows": records(w[PERSON + ["previous_rating", "latest_period_rating", "trend", "signal_reason",
+                                    "recorded_attrition_risk", "risk_tier", "high_potential"]]),
+    }  # fmt: skip
+
+
+def page_q6(g: dict[str, pd.DataFrame]) -> dict:
+    t, p = g["team_performance"], g["project_performance"]
+    thirds = (
+        t.groupby("rating_band")
+        .agg(teams=("team_id", "size"), avg_rating=("avg_rating", "mean"), projects=("projects", "sum"),
+             on_time=("projects_on_time", "sum"), on_time_rate=("on_time_rate", "mean"))
+        .reindex(list(RATING_BANDS))
+        .reset_index()
+    )  # fmt: skip
+    types = p.groupby("project_type").agg(projects=("project_id", "size"), on_time=("on_time", "mean")).reset_index()
+    return {
+        "teams_with_projects": int(len(t)),
+        "projects": int(len(p)),
+        "thirds": records(thirds),
+        "project_types": records(types.sort_values("on_time")),
+        "teams": records(t[["team_name", "department", "headcount", "people_rated", "avg_rating", "low_performer_share",
+                            "rating_band", "projects", "projects_on_time", "on_time_rate", "avg_outcome_score"]]
+                         .sort_values("avg_rating", ascending=False)),
+        "project_rows": records(p[["project_name", "project_type", "team_name", "department", "outcome_status",
+                                   "outcome_score", "team_avg_rating", "team_rating_band"]]),
+    }  # fmt: skip
+
+
+def page_q7(g: dict[str, pd.DataFrame]) -> dict:
+    comp, dist = g["competency_summary"], g["skill_distribution"]
+    levels = comp[[f"level_{i}" for i in range(1, 6)]].sum()
+    dept = dist.assign(points=dist["proficiency_level"] * dist["assessments"]).groupby("department")[["points", "assessments"]].sum()
+    cat = comp.assign(points=comp["avg_proficiency"] * comp["assessed"]).groupby("category")[["points", "assessed"]].sum()
+    return {
+        "assessments": int(comp["assessed"].sum()),
+        "meets_share": _meets_share(comp),
+        "levels": [{"label": f"Level {i}", "value": int(levels[f"level_{i}"])} for i in range(1, 6)],
+        "by_department": [{"label": k, "value": round(float(v), 2)}
+                          for k, v in (dept["points"] / dept["assessments"]).sort_values().items()],
+        "by_category": [{"label": k, "value": round(float(v), 2)} for k, v in (cat["points"] / cat["assessed"]).items()],
+        "rows": records(comp[["competency_name", "category", "assessed", "avg_proficiency", "avg_required_level",
+                              "meets_required_share", "critical_gaps", "level_1", "level_2", "level_3", "level_4",
+                              "level_5"]].sort_values("avg_proficiency")),
+    }  # fmt: skip
+
+
+def employee_pages(g: dict[str, pd.DataFrame]) -> dict[int, dict]:
+    """One page per employee: everything Gold knows about them across the seven questions."""
+
+    def by_employee(table: str, cols: list[str] | None = None) -> dict[int, list[dict]]:
+        df = g[table]
+        rows = records(df[["employee_id", *cols]] if cols else df)
+        out: dict[int, list[dict]] = defaultdict(list)
+        for row in rows:
+            out[int(row["employee_id"])].append({k: v for k, v in row.items() if cols is None or k != "employee_id"})
+        return out
+
+    reviews = by_employee("employee_review_history", ["review_period", "rating", "manager_comment", "submitted_date",
+                                                      "flag_period_before_hire"])
+    skills = by_employee("employee_skill_gaps", ["competency_name", "category", "required_level", "proficiency_level",
+                                                 "shortfall", "is_key", "is_critical"])
+    learning = by_employee("employee_learning")
+    courses = by_employee("employee_course_completions", ["course_name", "completed", "completed_date", "certified",
+                                                          "certified_date"])
+    promotion = by_employee("promotion_candidates", ["rank", "tier", "recommendation", "retention_priority"])
+    attrition = by_employee("attrition_watchlist", ["recorded_attrition_risk", "performance_signal", "signal_reason",
+                                                    "risk_tier"])  # fmt: skip
+    pages = {}
+    for profile in records(g["employee_performance_summary"]):
+        e = int(profile["employee_id"])
+        pages[e] = {
+            "profile": profile,
+            "reviews": reviews[e],
+            "skills": skills[e],
+            "learning": (learning[e] or [None])[0],
+            "courses": courses[e],
+            "promotion": (promotion[e] or [None])[0],
+            "attrition": (attrition[e] or [None])[0],
+        }
+    return pages
+
+
+DASHBOARD_PAGES: dict[str, Callable[[dict[str, pd.DataFrame]], dict]] = {
+    "summary": page_summary, "q1": page_q1, "q2": page_q2, "q3": page_q3, "q4": page_q4,
+    "q5": page_q5, "q6": page_q6, "q7": page_q7,
+}  # fmt: skip
+
+
+def export_dashboard(cfg: Config) -> StepMetrics:
+    """Write the dashboard's pages as JSON under ``serving/dashboard/``, read from the Gold just written.
+
+    Rebuilt from scratch on every run (idempotent). Employee pages are grouped
+    into ``EMPLOYEE_PARTS`` files so the Lambda reads one small file per lookup.
+    """
+    m = StepMetrics(step="serving.dashboard")
+    gold = {name: read_parquet_dataset(lake_path(cfg, "gold", name)) for name in GOLD_CONTRACTS}
+    m.records_read = sum(len(df) for df in gold.values())
+
+    target = lake_path(cfg, "serving", "dashboard")
+    replace_dir(target)
+    for name, build in DASHBOARD_PAGES.items():
+        write_json(build(gold), f"{target}/{name}.json", indent=None)
+        m.records_written += 1
+
+    parts: dict[int, dict[str, dict]] = defaultdict(dict)
+    for employee_id, page in employee_pages(gold).items():
+        parts[employee_id % EMPLOYEE_PARTS][str(employee_id)] = page
+    for part, pages in parts.items():
+        write_json(pages, f"{target}/employees/part-{part:02d}.json", indent=None)
+        m.records_written += 1
+
+    m.details = {"pages": list(DASHBOARD_PAGES), "employee_pages": sum(len(p) for p in parts.values()), "files": m.records_written}
+    log_event(logging.INFO, "serving.dashboard", target=target, files=m.records_written)
+    return m
+
+
+# --------------------------------------------------------------------------- #
 # Orchestration
 # --------------------------------------------------------------------------- #
 
@@ -2046,7 +2312,7 @@ def run_step(fn: Callable[[], StepMetrics]) -> StepMetrics:
 
 
 def main() -> int:
-    """Run Bronze → Silver → Gold and write a run manifest; returns the exit code."""
+    """Run Bronze → Silver → Gold → dashboard data and write a run manifest; returns the exit code."""
     cfg = Config.from_env()
     setup_logging(cfg.log_level)
 
@@ -2064,6 +2330,7 @@ def main() -> int:
         steps.append(run_step(lambda: transform_tables_to_silver(cfg, run_id)))
         steps.append(run_step(lambda: transform_events_to_silver(cfg, run_id)))
         steps.append(run_step(lambda: aggregate_to_gold(cfg)))
+        steps.append(run_step(lambda: export_dashboard(cfg)))
     except Exception as exc:  # noqa: BLE001 - top-level boundary: log, record, exit non-zero
         status, error = "failed", repr(exc)
         log.exception("event=job.error error=%r", exc)

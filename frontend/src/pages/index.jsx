@@ -1,13 +1,144 @@
 import { useState } from 'react'
 import {
-  Bars, Caveats, DataTable, DEPARTMENT, DEPT_FILTER, Grid, Loaded, NAME, Panel, PERSON_SEARCH, Question, Stat, TEAM,
-  fmt, useApi,
-} from './components.jsx'
+  Behind, Bars, Caveats, NotebookCharts, DataTable, DEPARTMENT, DEPT_FILTER, Grid, Loaded, NAME, Panel, PERSON_SEARCH, Question, Stat, TEAM,
+  fmt,
+} from '../components/ui.jsx'
+import { useApi } from '../services/api.js'
+
+// ---------------------------------------------------------------- journey ----
+
+function FlowBox({ title, sub, value, layer }) {
+  return (
+    <div className={`flow-box${layer ? ' layer' : ''}`}>
+      <span className="flow-title">{title}</span>
+      <span className="muted small">{sub}</span>
+      <span className="flow-value">{value}</span>
+    </div>
+  )
+}
+
+export function Journey() {
+  const runs = useApi('pipeline')
+  const src = useApi('source')
+  return (
+    <Loaded state={runs}>
+      {(d) => {
+        if (!d.latest_run) return <p className="muted">No successful pipeline run yet.</p>
+        const step = Object.fromEntries(d.steps.map((s) => [s.step, s]))
+        const bp = step['bronze.postgres']
+        const bl = step['bronze.learning_activity']
+        const st = step['silver.tables']
+        const sl = step['silver.learning_activity']
+        const gold = step.gold
+        const ev = sl.details || {}
+        const reasons = ev.quarantine_reasons || {}
+        const flags = st.details || {}
+        const goldTables = Object.keys(gold.details?.tables || {}).length
+        const passed = d.checks.filter((c) => String(c.result).startsWith('PASS')).length
+        const found = [
+          ['Lines that were not valid JSON', reasons.malformed_json, 'Set aside (quarantined) with the reason'],
+          ['Events with no employee ID', reasons.null_employee_id, 'Set aside: cannot be credited to anyone'],
+          ['Exact duplicate events', ev.duplicates_dropped, 'Extra copies removed'],
+          ['Unreadable event dates ("yesterday", "N/A", …)', ev.event_date_repaired, "Repaired to the file's day and flagged: two clues agree"],
+          ['Old field name "notes" instead of "text"', ev.schema_drift_renamed, 'Renamed'],
+          ['Empty event files', ev.empty_files, 'Logged and skipped'],
+          ['Reviews dated before the hire', flags.performance_reviews?.flag_period_before_hire, 'Kept and flagged; left out of ratings'],
+          ['Skill assessments dated before the hire', flags.competency_assessments?.flag_assessed_before_hire, 'Kept and flagged'],
+        ].filter(([, n]) => n)
+        const cloud = src.data?.mode === 'cloud'
+        return (
+          <section>
+            <p className="eyebrow">Data journey</p>
+            <h2>How raw HR data becomes the seven answers</h2>
+            <div className="answer">
+              Every run takes <b>{fmt.num(bp.records_read)}</b> database rows and <b>{fmt.num(ev.lines_read)}</b>{' '}
+              learning events, cleans and checks them in three layers, and publishes the answers only if every check
+              passes. The latest run (<code>{d.latest_run.run_id}</code>) passed{' '}
+              <b>
+                {passed}/{d.checks.length}
+              </b>{' '}
+              checks.
+            </div>
+
+            <div className="flow">
+              <FlowBox title="Sources" sub="HR database (7 tables) + learning-event files" value={`${fmt.num(bp.records_read)} rows · ${fmt.num(bl.details?.files_found)} files`} />
+              <span className="flow-arrow">→</span>
+              <FlowBox layer title="Bronze" sub="raw copy, never changed" value={`${fmt.num(bp.records_written)} rows · ${fmt.num(bl.details?.files_found)} files`} />
+              <span className="flow-arrow">→</span>
+              <FlowBox layer title="Silver" sub="cleaned and checked" value={`${fmt.num(st.records_written)} rows · ${fmt.num(sl.records_written)} events`} />
+              <span className="flow-arrow">→</span>
+              <FlowBox layer title="Gold" sub="answer tables" value={`${goldTables} tables`} />
+              <span className="flow-arrow">→</span>
+              <FlowBox title="Answers" sub="this dashboard + the notebook" value="7 questions" />
+            </div>
+
+            <Grid>
+              <Panel title="Bronze: the raw copy">
+                <ul className="tight">
+                  <li>All 7 HR tables copied as they are; row counts checked against the database.</li>
+                  <li>Every learning-event file copied byte for byte, file sizes checked.</li>
+                  <li>Never changed afterwards: each run adds its own copy, so we can always go back to what arrived.</li>
+                </ul>
+              </Panel>
+              <Panel title="Silver: cleaned and checked">
+                <ul className="tight">
+                  <li>Every record checked against rules: types, required fields, allowed values, ranges, links between tables.</li>
+                  <li>
+                    {fmt.num(sl.records_quarantined)} bad event lines set aside with a reason, {fmt.num(ev.duplicates_dropped)}{' '}
+                    duplicates removed, {fmt.num(ev.event_date_repaired)} dates repaired.
+                  </li>
+                  <li>Nothing lost silently: every input line is either kept, set aside or a counted duplicate.</li>
+                </ul>
+              </Panel>
+              <Panel title="Gold: the answers">
+                <ul className="tight">
+                  <li>{goldTables} tables, one or two per question, built only from Silver.</li>
+                  <li>Every row re-checked against its business rule before anything is written.</li>
+                  <li>Totals reconciled with Silver; if a check fails, the previous answers stay.</li>
+                </ul>
+              </Panel>
+            </Grid>
+
+            <Panel title="What we found in the data, and what we did">
+              <DataTable
+                rows={found.map(([issue, n, action]) => ({ issue, n, action }))}
+                columns={[
+                  { key: 'issue', label: 'Problem' },
+                  { key: 'n', label: 'Count', align: 'right', format: fmt.num },
+                  { key: 'action', label: 'What we did' },
+                ]}
+              />
+            </Panel>
+
+            <Panel title="How we know the answers are right">
+              <ul className="tight">
+                <li>
+                  <b>
+                    {passed} of {d.checks.length}
+                  </b>{' '}
+                  reconciliation checks passed in the latest run (details on the Pipeline tab).
+                </li>
+                <li>Every answer row is re-checked against its own rule; this caught a real bug during development.</li>
+                <li>242 automated tests, and an independent recalculation in plain SQL that matches every answer.</li>
+              </ul>
+            </Panel>
+
+            <p className="muted small">
+              {cloud
+                ? 'Runs on AWS: the pipeline runs on EKS and writes to an S3 data lake; this dashboard reads its latest results.'
+                : 'Running locally: this dashboard reads the latest results of the pipeline on this machine.'}
+            </p>
+          </section>
+        )
+      }}
+    </Loaded>
+  )
+}
 
 // ---------------------------------------------------------------- overview ---
 
 export function Overview({ open }) {
-  const state = useApi('/api/summary')
+  const state = useApi('summary')
   return (
     <section>
       <h2>Answers to the seven questions</h2>
@@ -36,7 +167,7 @@ export function Overview({ open }) {
 // ---------------------------------------------------------------- Q1 ---------
 
 export function Q1() {
-  const state = useApi('/api/q1')
+  const state = useApi('q1')
   return (
     <Loaded state={state}>
       {(d) => {
@@ -54,6 +185,16 @@ export function Q1() {
               </>
             }
           >
+            <Behind
+              points={[
+                'Every review is listed with the employee\'s team and department (table below).',
+                <>The trend compares each person's rating in {prev.period} with {latest.period}: up = improved, same = stable, down = declined.</>,
+                'Reviews dated before the employee was hired stay in the history but are left out of ratings and trends.',
+              ]}
+              gold={['employee_review_history', 'employee_performance_summary']}
+              sources={['performance reviews', 'employees', 'teams']}
+            />
+            <NotebookCharts q="q1" />
             <Grid>
               <Panel title="Rating trend per employee">
                 <Bars items={d.trend} />
@@ -99,7 +240,7 @@ export function Q1() {
 // ---------------------------------------------------------------- Q2 ---------
 
 export function Q2() {
-  const state = useApi('/api/q2')
+  const state = useApi('q2')
   return (
     <Loaded state={state}>
       {(d) => (
@@ -114,20 +255,19 @@ export function Q2() {
             </>
           }
         >
-          <Panel title="How it is worked out">
-            <ul className="tight">
-              <li>
-                <b>Shortfall</b> = the level the job requires − the employee's actual level.
-              </li>
-              <li>
-                <b>Key skill</b> = one the employee's job requires at level 4, the highest level required in the data.
-              </li>
-              <li>
+          <Behind
+            points={[
+              <><b>Shortfall</b> = the level the job requires − the employee's actual level.</>,
+              <><b>Key skill</b> = one the employee's job requires at level 4, the highest level required in the data.</>,
+              <>
                 <b>Critical gap</b> = 2 or more levels short on any skill, or any shortfall on a key skill. The key rule
                 alone adds {fmt.num(d.key_only)} employees.
-              </li>
-            </ul>
-          </Panel>
+              </>,
+            ]}
+            gold={['employee_skill_gaps', 'competency_summary']}
+            sources={['competency assessments', 'competencies', 'employees', 'teams']}
+          />
+          <NotebookCharts q="q2" />
           <Grid>
             <Panel title="Skills with the most critical gaps" note="Share of each skill's assessments that are critical gaps">
               <Bars items={d.by_competency} format={fmt.pct} />
@@ -166,7 +306,7 @@ export function Q2() {
 // ---------------------------------------------------------------- Q3 ---------
 
 export function Q3() {
-  const state = useApi('/api/q3')
+  const state = useApi('q3')
   return (
     <Loaded state={state}>
       {(d) => {
@@ -183,6 +323,17 @@ export function Q3() {
               </>
             }
           >
+            <Behind
+              points={[
+                <>Shortlist = employees HR rated <b>High potential</b> and <b>Ready Now</b> in the talent review ({fmt.num(d.candidates)}).</>,
+                'Ranked into tiers by their latest valid rating (from Q1): A = 4-5, B = 3, C = 2 or lower, or no valid rating.',
+                'Within a tier: higher rating first, then more certifications and courses completed (from Q4).',
+                <>Tier A with high recorded attrition risk = <b>retention priority</b>: promote first, or risk losing them.</>,
+              ]}
+              gold={['promotion_candidates']}
+              sources={['talent review', 'Q1 performance summary', 'Q4 training counts']}
+            />
+            <NotebookCharts q="q3" />
             <Grid>
               <Panel title="Candidates by tier" note="A = latest rating 4-5 · B = 3 · C = 2 or lower, or no valid rating">
                 <Bars items={d.tiers.map((x) => ({ ...x, label: `Tier ${x.label}` }))} />
@@ -223,7 +374,7 @@ export function Q3() {
 // ---------------------------------------------------------------- Q4 ---------
 
 export function Q4() {
-  const state = useApi('/api/q4')
+  const state = useApi('q4')
   return (
     <Loaded state={state}>
       {(d) => (
@@ -239,6 +390,17 @@ export function Q4() {
             </>
           }
         >
+          <Behind
+            points={[
+              'Counted from the learning-event files: one line per event (enrolled, module, quiz, course completed, certification).',
+              'Each course counts once per person, even if it was completed twice.',
+              'Events with no employee ID were set aside, not guessed; unreadable dates were repaired to the day of their file.',
+              'No completion rate is shown: the records do not reliably show when people signed up for a course.',
+            ]}
+            gold={['employee_learning', 'employee_course_completions']}
+            sources={['learning-event files', 'employees', 'teams']}
+          />
+          <NotebookCharts q="q4" />
           <Grid>
             <Panel title="Employees by number of courses completed">
               <Bars items={d.courses_histogram.map((x) => ({ ...x, label: `${x.label} courses` }))} />
@@ -289,7 +451,7 @@ export function Q4() {
 // ---------------------------------------------------------------- Q5 ---------
 
 export function Q5() {
-  const state = useApi('/api/q5')
+  const state = useApi('q5')
   return (
     <Loaded state={state}>
       {(d) => {
@@ -306,6 +468,16 @@ export function Q5() {
               </>
             }
           >
+            <Behind
+              points={[
+                <><b>Performance warning</b> = the rating went down between the two review periods, or the latest rating is 2 or lower (from Q1).</>,
+                'Combined with the attrition risk HR recorded in the talent review (Low / Medium / High), using the grid below.',
+                'Warning + High risk = Critical; warning + Medium, or High risk without a warning = High; warning + Low = Watch; everyone else = Low.',
+              ]}
+              gold={['attrition_watchlist']}
+              sources={['Q1 performance summary', 'talent review']}
+            />
+            <NotebookCharts q="q5" />
             <Grid>
               <Panel title="Employees by risk tier">
                 <Bars items={d.tiers} />
@@ -376,7 +548,7 @@ export function Q5() {
 // ---------------------------------------------------------------- Q6 ---------
 
 export function Q6() {
-  const state = useApi('/api/q6')
+  const state = useApi('q6')
   return (
     <Loaded state={state}>
       {(d) => {
@@ -393,6 +565,16 @@ export function Q6() {
               </>
             }
           >
+            <Behind
+              points={[
+                <>Projects belong to teams, so the comparison is team by team: only the {d.teams_with_projects} teams that have projects ({d.projects} projects).</>,
+                "Each team's rating = the average of its people's valid reviews.",
+                'Teams are split into thirds by that rating (9 teams each), and on-time delivery is compared between the thirds.',
+              ]}
+              gold={['team_performance', 'project_performance']}
+              sources={['projects', 'teams', 'employees', 'performance reviews']}
+            />
+            <NotebookCharts q="q6" />
             <Grid>
               <Panel title="On-time delivery by team rating" note="Teams split into thirds by their people's average rating">
                 <Bars
@@ -453,7 +635,7 @@ export function Q6() {
 // ---------------------------------------------------------------- Q7 ---------
 
 export function Q7() {
-  const state = useApi('/api/q7')
+  const state = useApi('q7')
   return (
     <Loaded state={state}>
       {(d) => (
@@ -469,6 +651,16 @@ export function Q7() {
             </>
           }
         >
+          <Behind
+            points={[
+              <>Uses all {fmt.num(d.assessments)} skill assessments (each employee was assessed on 2 of the 40 skills).</>,
+              'For each skill: how many people are at each level 1-5, the average level, and the share meeting the level their job requires.',
+              'The department and category views add up the same assessments.',
+            ]}
+            gold={['competency_summary', 'skill_distribution']}
+            sources={['competency assessments', 'competencies', 'employees', 'teams']}
+          />
+          <NotebookCharts q="q7" />
           <Grid>
             <Panel title="Assessments at each proficiency level">
               <Bars items={d.levels} />
@@ -510,7 +702,7 @@ export function Q7() {
 export function Employee() {
   const [input, setInput] = useState('58')
   const [id, setId] = useState('58')
-  const state = useApi(id ? `/api/employee/${id}` : null)
+  const state = useApi(id ? `employee/${id}` : null)
   return (
     <section>
       <h2>Employee lookup</h2>
@@ -601,7 +793,7 @@ export function Employee() {
 // ---------------------------------------------------------------- pipeline ---
 
 export function Pipeline() {
-  const state = useApi('/api/pipeline')
+  const state = useApi('pipeline')
   return (
     <section>
       <h2>Pipeline</h2>

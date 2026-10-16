@@ -1,0 +1,2 @@
+# No packages: the function only uses the Python standard library and boto3,
+# which the AWS Lambda Python runtime already provides.

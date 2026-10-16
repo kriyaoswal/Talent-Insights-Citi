@@ -1,28 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 
-// ---------------------------------------------------------------- data -------
-
-export function useApi(path) {
-  const [state, setState] = useState({ loading: true })
-  useEffect(() => {
-    if (!path) return undefined
-    let live = true
-    setState({ loading: true })
-    fetch(path)
-      .then(async (res) => {
-        const body = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(body.error || `${res.status} ${res.statusText}`)
-        return body
-      })
-      .then((data) => live && setState({ data }))
-      .catch((err) => live && setState({ error: err.message }))
-    return () => {
-      live = false
-    }
-  }, [path])
-  return state
-}
-
 export function Loaded({ state, children }) {
   if (state.loading) return <p className="muted">Loading from the Gold layer…</p>
   if (state.error)
@@ -30,7 +7,7 @@ export function Loaded({ state, children }) {
       <div className="error">
         <strong>Could not load data.</strong> {state.error}
         <br />
-        Is the API running? (<code>.venv/bin/python dashboard/api.py</code>)
+        Locally, is the API running? (<code>data/talent-etl/.venv/bin/python data/talent-etl/dashboard/api.py</code>)
       </div>
     )
   return children(state.data)
@@ -84,6 +61,60 @@ export function Caveats({ items }) {
           <li key={c}>{c}</li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+/** "Behind the answer": how the answer was found, and the data it comes from. */
+export function Behind({ points, gold, sources }) {
+  return (
+    <div className="panel behind">
+      <h3>Behind the answer</h3>
+      <ul className="tight">
+        {points.map((p, i) => (
+          <li key={i}>{p}</li>
+        ))}
+      </ul>
+      <p className="data-used small">
+        <span className="muted">Answer tables (Gold): </span>
+        {gold.map((g) => (
+          <code key={g}>{g}</code>
+        ))}
+        <br />
+        <span className="muted">Built from: </span>
+        {sources.join(' · ')}
+      </p>
+    </div>
+  )
+}
+
+// The insights notebook's own charts, exported by data/talent-etl/scripts/export_notebook_charts.py
+let chartIndex
+function loadCharts() {
+  chartIndex ??= fetch('/charts/charts.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}))
+  return chartIndex
+}
+
+export function NotebookCharts({ q }) {
+  const [charts, setCharts] = useState(null)
+  useEffect(() => {
+    let live = true
+    loadCharts().then((all) => live && setCharts(all[q] || []))
+    return () => {
+      live = false
+    }
+  }, [q])
+  if (!charts?.length) return null
+  return (
+    <div className="panel">
+      <h3>Charts from the notebook</h3>
+      <div className="nb-charts">
+        {charts.map((c) => (
+          <figure key={c.file}>
+            <img src={`/${c.file}`} alt={c.titles.join(' · ') || 'Notebook chart'} loading="lazy" />
+          </figure>
+        ))}
+      </div>
     </div>
   )
 }

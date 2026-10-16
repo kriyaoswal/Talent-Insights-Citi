@@ -124,6 +124,7 @@ lake/
 │   ├── learning_activity/event_year=YYYY/event_month=MM/data.parquet
 │   └── _quarantine/<dataset>/run_date=YYYY-MM-DD/rejected.parquet   rejected rows + reject_reasons
 ├── gold/<table>/data.parquet       11 tables answering Q1–Q7 (see Gold)
+├── serving/dashboard/*.json        dashboard pages, written from Gold every run (see Dashboard)
 └── _runs/run_date=YYYY-MM-DD/<run_id>.json    run manifest: per-step counts, durations, status
 ```
 
@@ -416,41 +417,43 @@ cd data/talent-etl/notebooks && ../.venv/bin/jupyter lab
 `AWS_DEFAULT_REGION` is needed: the S3 library ignores `AWS_REGION`, sends the
 request to `us-east-1` and fails with `No AWSAccessKey was presented`.
 
-## Dashboard (React)
+## Dashboard (React, deployed on AWS)
 
-A web version of the notebook: [`dashboard/`](dashboard/). Like the notebook it
-reads **only Gold**, live, from the local lake or from S3 (the same
-`LAKE_ROOT` setting), and never writes anything.
+A web version of the notebook, live at the workshop's CloudFront URL
+(`terraform output api_base_url`, e.g. `https://<id>.cloudfront.net`). It shows
+only Gold answers and never writes anything.
 
 ```
-Gold (lake/ or s3://…) ──► dashboard/api.py (Python, read-only JSON) ──► dashboard/web (React) ──► browser
+EKS job: ... → Gold → serving.dashboard step ─► s3://…/lake/serving/dashboard/*.json
+CloudFront ─► React app (frontend/, uploaded by bin/deploy-frontend.sh)
+           └► /api/talent-dashboard/* ─► Lambda backend/talent-dashboard (reads those JSON files)
 ```
+
+**Why a serving step:** every workshop Lambda has 128 MB of memory, too little
+for pandas. So the pipeline, which already has Gold in memory on EKS, writes
+each dashboard page as a ready-made JSON file (`export_dashboard` in `job.py`,
+108 files, about 5 s). The Lambda only reads files from S3 with the Python
+standard library and boto3. The dashboard updates whenever the pipeline runs.
 
 | Page | Shows |
 |---|---|
 | Overview | one card per question with its headline answer; the header shows the data source and the run it came from |
-| Q1–Q7 | the answer, how it is worked out where needed, charts, a searchable and filterable table, and the caveats |
+| Q1–Q7 | the answer, charts, a searchable and filterable table, and the caveats |
 | Employee | everything about one employee across the seven questions |
 | Pipeline | records through each step, the 15 Gold checks and the recent runs, from the run records |
 
-**Run it** (two terminals, from `data/talent-etl`):
+**Deploy** (from the repository root): `./bin/deploy-backend.sh` creates the
+Lambda and its CloudFront route and reruns the pipeline; then
+`./bin/deploy-frontend.sh aws` builds and uploads the React app.
+
+**Run locally** (two terminals): `job.py` writes the dashboard data into the
+local lake, `dashboard/api.py` serves it with the Lambda's own code, and the
+React dev server forwards `/api/talent-dashboard` to it.
 
 ```sh
-# 1. the API: local Gold by default
-.venv/bin/python dashboard/api.py
-#    or Gold on S3 (from the repository root, after ./bin/setup-participant.sh):
-#    set -a && source ENVIRONMENT.config && set +a
-#    export AWS_DEFAULT_REGION=ap-south-1 LAKE_ROOT=s3://coding-workshop-datalake-<participant>/lake
-#    data/talent-etl/.venv/bin/python data/talent-etl/dashboard/api.py
-
-# 2. the web app (first time: npm install)
-cd dashboard/web && npm install && npm run dev      # http://127.0.0.1:5173
+data/talent-etl/.venv/bin/python data/talent-etl/dashboard/api.py   # LAKE_ROOT=s3://… to read the cloud data
+cd frontend && npm install && npm run dev                           # http://localhost:3000
 ```
-
-The API listens on `127.0.0.1:8510` (`DASHBOARD_PORT` to change it); the web
-app forwards `/api` there. It lives under `data/talent-etl/`, not in the
-workshop's `backend/` or `frontend/`, so the deploy scripts don't pick it up:
-it's a local demo, with no login, and it is not deployed.
 
 ## Performance
 
@@ -507,7 +510,7 @@ PostgreSQL tables pass every `schema.sql` rule and every extra contract rule.
 .venv/bin/python -m pytest -q tests --cov=job --cov-report=term-missing
 ```
 
-235 tests, 98% line coverage of `job.py`, and every per-area coverage goal in
+242 tests, 98% line coverage of `job.py`, and every per-area coverage goal in
 the guide met. Commands, results and conclusions: **[TESTING.md](TESTING.md)**.
 Raw output (every test's result, coverage, AWS run records): [tests/results/](tests/results/),
 regenerated with `./scripts/test_evidence.sh`.
@@ -521,7 +524,7 @@ regenerated with `./scripts/test_evidence.sh`.
 | `test_silver_tables.py` | every contract rule type, cascading foreign keys, schema drift, soft flags |
 | `test_config.py` | local defaults, required cloud variables, no password in logs |
 | `test_answers_crosscheck.py` | the 7 answers recomputed independently (plain SQL on the source tables, plain Python on the raw event files) and compared with every Gold row |
-| `test_dashboard_api.py` | the dashboard API: every page's data, the headline numbers, bad requests, JSON-safe values, served over HTTP. Skipped without a Gold layer |
+| `test_dashboard_api.py` | the dashboard path: the pipeline's serving step writes every page, the Lambda's routes and handler (on disk and on moto S3), the headline numbers, bad requests, and the local server over HTTP |
 | `test_bronze_immutable.py` | Bronze is write-once: an existing snapshot is never replaced (and the error isn't retried), each run gets its own table snapshot, a changed source file leaves the landed file untouched and is counted, new files are still landed |
 | `test_resilience.py` | the real job under injected failures: dropped database connections, a failed write in each layer, permanent failure, failed Gold leaving previous Gold intact |
 | `test_retry.py` | backoff timing, giving up after max attempts, no retry on non-transient errors |

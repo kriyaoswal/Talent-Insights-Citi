@@ -65,12 +65,11 @@ header p { margin: 0; }
 }
 
 nav {
-  display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--line);
-  margin-bottom: 20px; scrollbar-width: thin;
+  display: flex; flex-wrap: wrap; gap: 0 2px; border-bottom: 1px solid var(--line); margin-bottom: 20px;
 }
 nav button {
-  background: none; border: none; border-bottom: 2px solid transparent; padding: 10px 12px;
-  font: inherit; font-size: 0.9rem; color: var(--ink-2); cursor: pointer; white-space: nowrap;
+  background: none; border: none; border-bottom: 2px solid transparent; padding: 10px 10px;
+  font: inherit; font-size: 0.88rem; color: var(--ink-2); cursor: pointer; white-space: nowrap;
 }
 nav button:hover { color: var(--ink); }
 nav button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
@@ -132,3 +131,23 @@ tbody tr:hover { background: var(--accent-soft); }
 .error { background: #fbe4e2; color: var(--bad); padding: 12px 16px; border-radius: 8px; }
 @media (prefers-color-scheme: dark) { .error { background: #43211f; } }
 td .wrap { white-space: normal; display: inline-block; min-width: 220px; }
+
+.behind { border-left: 4px solid var(--accent); }
+.data-used { margin: 10px 0 0; line-height: 1.9; }
+.data-used code { margin-right: 6px; }
+
+.flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }
+.flow-box {
+  flex: 1 1 150px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 2px;
+}
+.flow-box.layer { border-top: 4px solid var(--bar); }
+.flow-title { font-weight: 700; }
+.flow-value { font-size: 1.05rem; font-weight: 600; }
+.flow-arrow { align-self: center; color: var(--muted); font-size: 1.3rem; }
+@media (max-width: 720px) { .flow-arrow { display: none; } }
+
+.nb-charts { display: flex; flex-direction: column; gap: 16px; }
+.nb-charts figure { margin: 0; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+.nb-charts img { display: block; width: 100%; max-width: 1100px; height: auto; margin: 0 auto; }
+.nb-charts figcaption { margin-top: 6px; }

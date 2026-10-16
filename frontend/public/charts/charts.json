@@ -1,0 +1,105 @@
+{
+  "q1": [
+    {
+      "file": "charts/q1-1.png",
+      "titles": [
+        "Ratings shifted upward",
+        "Most employees improved or held steady"
+      ]
+    },
+    {
+      "file": "charts/q1-2.png",
+      "titles": [
+        "Every department's average rose"
+      ]
+    }
+  ],
+  "q2": [
+    {
+      "file": "charts/q2-1.png",
+      "titles": [
+        "Where critical gaps concentrate"
+      ]
+    },
+    {
+      "file": "charts/q2-2.png",
+      "titles": [
+        "Critical-gap rate by department and skill category"
+      ]
+    }
+  ],
+  "q3": [
+    {
+      "file": "charts/q3-1.png",
+      "titles": [
+        "Potential doesn't predict rating"
+      ]
+    },
+    {
+      "file": "charts/q3-2.png",
+      "titles": [
+        "Candidates by department"
+      ]
+    }
+  ],
+  "q4": [
+    {
+      "file": "charts/q4-1.png",
+      "titles": [
+        "Most employees completed 1-3 courses",
+        "Most completed courses"
+      ]
+    },
+    {
+      "file": "charts/q4-2.png",
+      "titles": [
+        "Certification coverage by department"
+      ]
+    }
+  ],
+  "q5": [
+    {
+      "file": "charts/q5-1.png",
+      "titles": [
+        "Attrition risk tiers",
+        "Falling ratings go with high recorded risk"
+      ]
+    }
+  ],
+  "q6": [
+    {
+      "file": "charts/q6-1.png",
+      "titles": [
+        "Higher-rated teams deliver on time more often",
+        "Migrations are most often late"
+      ]
+    },
+    {
+      "file": "charts/q6-2.png",
+      "titles": [
+        "Ratings don't predict outcome scores",
+        "Always-delayed teams had more low performers"
+      ]
+    }
+  ],
+  "q7": [
+    {
+      "file": "charts/q7-1.png",
+      "titles": [
+        "Proficiency follows a bell curve"
+      ]
+    },
+    {
+      "file": "charts/q7-2.png",
+      "titles": [
+        "Average proficiency by competency"
+      ]
+    },
+    {
+      "file": "charts/q7-3.png",
+      "titles": [
+        "Average proficiency by department and category"
+      ]
+    }
+  ]
+}
